@@ -1,0 +1,6 @@
+[Details]
+  Name = "GitHub 文章发布器"
+  ID = "com.ghpublisher.app"
+
+[Migrations]
+  fyneDo = true
