@@ -1,8 +1,11 @@
 package ui
 
 import (
+	"image/color"
 	"testing"
 	"time"
+
+	"fyne.io/fyne/v2/theme"
 )
 
 func TestPillTextIdle(t *testing.T) {
@@ -47,6 +50,46 @@ func TestPillStateKind(t *testing.T) {
 				t.Errorf("pillStateKind(%v,%d,%d,%d) = %v, want %v", c.running, c.done, c.total, c.failed, got, c.want)
 			}
 		})
+	}
+}
+
+// TestPillStyleIdleUsesThemedMutedColor 是回归测试：待机态文字曾经通过
+// widget.LowImportance 间接取色，落到 Fyne 默认主题里近乎纯白的
+// disabled 色（#E3E3E3），与胶囊自身的浅色背景几乎融为一体、肉眼不可见。
+// 这里要求 fg 直接等于本主题的 mutedColor()，确保与胶囊底色有足够对比度。
+func TestPillStyleIdleUsesThemedMutedColor(t *testing.T) {
+	th := NewTheme(theme.VariantLight)
+	bg, fg := pillStyle(th, false, 0, 0, 0)
+	if fg != th.mutedColor() {
+		t.Errorf("fg = %#v, want muted color %#v", fg, th.mutedColor())
+	}
+	nrgba, ok := bg.(color.NRGBA)
+	if !ok || nrgba.A != 36 {
+		t.Errorf("bg = %#v, want NRGBA alpha 36", bg)
+	}
+}
+
+func TestPillStyleRunning(t *testing.T) {
+	th := NewTheme(theme.VariantLight)
+	_, fg := pillStyle(th, true, 2, 5, 0)
+	if fg != th.accentColor() {
+		t.Errorf("fg = %#v, want accent color", fg)
+	}
+}
+
+func TestPillStyleSuccess(t *testing.T) {
+	th := NewTheme(theme.VariantLight)
+	_, fg := pillStyle(th, false, 5, 5, 0)
+	if fg != th.successColor() {
+		t.Errorf("fg = %#v, want success color", fg)
+	}
+}
+
+func TestPillStyleError(t *testing.T) {
+	th := NewTheme(theme.VariantLight)
+	_, fg := pillStyle(th, false, 5, 5, 2)
+	if fg != th.errorColor() {
+		t.Errorf("fg = %#v, want error color", fg)
 	}
 }
 

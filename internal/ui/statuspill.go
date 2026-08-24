@@ -8,7 +8,6 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
-	"fyne.io/fyne/v2/widget"
 )
 
 // pillText 根据发布状态生成标题栏状态胶囊文案。
@@ -62,44 +61,49 @@ func formatElapsed(d time.Duration) string {
 	return fmt.Sprintf("%02d:%02d", m, s)
 }
 
+// pillStyle 返回状态胶囊在给定状态下的背景色、文字色。文字色直接来自
+// 主题取色，不经过 widget.Label 的 Importance 机制——后者的 LowImportance
+// 会映射到 Fyne 默认主题里未被本项目定制的 disabled 色，与胶囊自身的浅色
+// 背景几乎融为一体、肉眼不可见。
+func pillStyle(t *Theme, running bool, done, total, failed int) (bg, fg color.Color) {
+	switch pillStateKind(running, done, total, failed) {
+	case pillRunning:
+		fg = t.accentColor()
+	case pillSuccess:
+		fg = t.successColor()
+	case pillError:
+		fg = t.errorColor()
+	default:
+		fg = t.mutedColor()
+	}
+	return badgeTint(fg, 36), fg
+}
+
 // statusPill 是标题栏右侧的圆角状态胶囊。running/done/total/failed 变化后
 // （每条发布事件、主题切换后）都需要调用一次 repaint 来刷新文案与颜色。
 type statusPill struct {
 	bg  *canvas.Rectangle
-	lbl *widget.Label
+	txt *canvas.Text
 }
 
 func newStatusPill() *statusPill {
 	bg := canvas.NewRectangle(color.Transparent)
 	bg.CornerRadius = 12
-	lbl := widget.NewLabel("待机")
-	return &statusPill{bg: bg, lbl: lbl}
+	txt := canvas.NewText("待机", color.Black)
+	return &statusPill{bg: bg, txt: txt}
 }
 
 func (p *statusPill) object() fyne.CanvasObject {
-	return container.NewStack(p.bg, container.NewPadded(p.lbl))
+	return container.NewStack(p.bg, container.NewPadded(p.txt))
 }
 
 // repaint 根据当前状态更新胶囊文案与颜色并触发重绘。非并发安全，
 // 必须只在 Fyne 主线程（fyne.Do 内）调用。
 func (p *statusPill) repaint(running bool, done, total, failed int) {
-	t := currentTheme()
-	var fg color.Color
-	switch pillStateKind(running, done, total, failed) {
-	case pillRunning:
-		fg = t.accentColor()
-		p.lbl.Importance = widget.HighImportance
-	case pillSuccess:
-		fg = t.successColor()
-		p.lbl.Importance = widget.SuccessImportance
-	case pillError:
-		fg = t.errorColor()
-		p.lbl.Importance = widget.DangerImportance
-	default:
-		fg = t.mutedColor()
-		p.lbl.Importance = widget.LowImportance
-	}
-	p.bg.FillColor = badgeTint(fg, 36)
-	p.lbl.SetText(pillText(running, done, total, failed))
+	bg, fg := pillStyle(currentTheme(), running, done, total, failed)
+	p.bg.FillColor = bg
+	p.txt.Color = fg
+	p.txt.Text = pillText(running, done, total, failed)
 	p.bg.Refresh()
+	p.txt.Refresh()
 }
