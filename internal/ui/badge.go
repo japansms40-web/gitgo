@@ -51,6 +51,8 @@ func newBadge() *badge {
 
 func (b *badge) object() fyne.CanvasObject { return b.root }
 
+// set 更新徽标的颜色与文字并触发重绘。非并发安全，
+// 必须只在 Fyne 主线程（fyne.Do 内）调用。
 func (b *badge) set(t *Theme, state string) {
 	bg, fg := badgeStyle(t, state)
 	b.bg.FillColor = bg

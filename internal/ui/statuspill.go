@@ -80,6 +80,8 @@ func (p *statusPill) object() fyne.CanvasObject {
 	return container.NewStack(p.bg, container.NewPadded(p.lbl))
 }
 
+// repaint 根据当前状态更新胶囊文案与颜色并触发重绘。非并发安全，
+// 必须只在 Fyne 主线程（fyne.Do 内）调用。
 func (p *statusPill) repaint(running bool, done, total, failed int) {
 	t := currentTheme()
 	var fg color.Color

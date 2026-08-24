@@ -257,14 +257,15 @@ func Build(w fyne.Window, prefs fyne.Preferences) fyne.CanvasObject {
 			reloadQueue([]string{rc.URI().Path()})
 		}, w)
 	})
-	clearBtn := widget.NewButton("清空", func() {
+	doClearQueue := func() {
 		arts = nil
 		rowState = nil
 		progress.SetText("0/0")
 		refreshCounts()
 		refreshRightPanel()
 		table.Refresh()
-	})
+	}
+	clearBtn := widget.NewButton("清空", doClearQueue)
 
 	// ---- 控制区 ----
 	var cancelFn context.CancelFunc
@@ -405,10 +406,12 @@ func Build(w fyne.Window, prefs fyne.Preferences) fyne.CanvasObject {
 		}, w)
 	}
 
-	saveBtn := widget.NewButton("保存配置", func() {
+	doSave := func() {
 		readConfig().Save(prefs)
 		logPanel.AppendInfo("配置已保存")
-	})
+	}
+	saveBtn := widget.NewButton("保存配置", doSave)
+	clearQueueBtn := widget.NewButton("清空队列", doClearQueue)
 
 	// ---- 日志面板工具条 ----
 	autoScrollCheck := widget.NewCheck("自动滚动", func(on bool) { logPanel.SetAutoScroll(on) })
@@ -449,7 +452,7 @@ func Build(w fyne.Window, prefs fyne.Preferences) fyne.CanvasObject {
 	)))
 
 	// ---- 发布页 / 帮助页 ----
-	toolbar := container.NewHBox(addFolderBtn, addFileBtn, clearBtn, layout.NewSpacer(), saveBtn)
+	toolbar := container.NewHBox(addFolderBtn, addFileBtn, clearBtn)
 	publishView := container.NewBorder(container.NewVBox(toolbar, settingsCard), nil, nil, nil, table)
 	helpView := BuildHelp()
 	contentStack := container.NewStack(publishView, helpView)
@@ -492,7 +495,7 @@ func Build(w fyne.Window, prefs fyne.Preferences) fyne.CanvasObject {
 		widget.NewSeparator(),
 		startBtn, stopBtn,
 		widget.NewSeparator(),
-		saveBtn, clearBtn, exportBtn,
+		saveBtn, clearQueueBtn, exportBtn,
 	)))
 
 	// ---- 标题栏 ----

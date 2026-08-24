@@ -51,6 +51,8 @@ func logLine(e publisher.Event) string {
 // LogPanel 是终端风格的运行日志面板：深底、等宽字体、按事件类型着色，
 // 内部维护一份纯文本副本供复制/导出使用。历史行的颜色在写入时定格，
 // 主题切换不会重新着色已有行（新写入的行会用新主题的颜色）。
+// 其画布相关方法（AppendEvent、AppendInfo 及内部 append）非并发安全，
+// 必须只在 Fyne 主线程（fyne.Do 内）调用。
 type LogPanel struct {
 	theme      *Theme
 	rows       *fyne.Container
