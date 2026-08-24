@@ -223,8 +223,6 @@ func Build(w fyne.Window, prefs fyne.Preferences) fyne.CanvasObject {
 	intervalEntry.OnChanged = func(string) { refreshRightPanel() }
 	retriesEntry.OnChanged = func(string) { refreshRightPanel() }
 
-	progress := widget.NewLabel("0/0")
-
 	reloadQueue := func(paths []string) {
 		c := readConfig()
 		list, err := article.ScanPaths(paths, c.Dir)
@@ -234,7 +232,6 @@ func Build(w fyne.Window, prefs fyne.Preferences) fyne.CanvasObject {
 		}
 		arts = list
 		rowState = nil
-		progress.SetText(fmt.Sprintf("0/%d", len(arts)))
 		refreshCounts()
 		refreshRightPanel()
 		table.Refresh()
@@ -260,7 +257,6 @@ func Build(w fyne.Window, prefs fyne.Preferences) fyne.CanvasObject {
 	doClearQueue := func() {
 		arts = nil
 		rowState = nil
-		progress.SetText("0/0")
 		refreshCounts()
 		refreshRightPanel()
 		table.Refresh()
@@ -353,7 +349,6 @@ func Build(w fyne.Window, prefs fyne.Preferences) fyne.CanvasObject {
 			runErr := p.Run(ctx, c, arts, func(e publisher.Event) {
 				fyne.Do(func() {
 					rowState.Apply(e)
-					progress.SetText(rowState.Progress())
 					refreshCounts()
 					table.Refresh()
 					logPanel.AppendEvent(e)
