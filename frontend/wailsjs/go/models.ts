@@ -38,8 +38,8 @@ export namespace config {
 	    failSwitchCount: number;
 	    cycleRounds: number;
 	    roundIntervalSec: number;
-	    keywordSlots: number;
 	    createRepo: boolean;
+	    keywordSlots: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new Config(source);
@@ -53,8 +53,8 @@ export namespace config {
 	        this.failSwitchCount = source["failSwitchCount"];
 	        this.cycleRounds = source["cycleRounds"];
 	        this.roundIntervalSec = source["roundIntervalSec"];
-	        this.keywordSlots = source["keywordSlots"];
 	        this.createRepo = source["createRepo"];
+	        this.keywordSlots = source["keywordSlots"];
 	    }
 	}
 
