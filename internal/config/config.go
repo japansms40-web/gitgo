@@ -2,7 +2,7 @@
 package config
 
 import (
-	"dfclientkit/appconfig"
+	"github.com/japansms40-web/dfclientkit/go/appconfig"
 
 	"gitmd/internal/contentgen"
 )

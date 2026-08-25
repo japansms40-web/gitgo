@@ -3,11 +3,9 @@ module gitmd
 go 1.26
 
 require (
-	dfclientkit v0.0.0-00010101000000-000000000000
+	github.com/japansms40-web/dfclientkit/go v0.1.0
 	github.com/wailsapp/wails/v2 v2.15.0
 )
-
-replace dfclientkit => ../dfclientkit/go
 
 require (
 	git.sr.ht/~jackmordaunt/go-toast/v2 v2.0.3 // indirect
