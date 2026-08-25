@@ -160,7 +160,7 @@ func (a *App) SelectAccountFiles() ([]string, error) {
 func (a *App) LoadAccounts() []account.Account {
 	path, err := account.DefaultPath()
 	if err != nil {
-		return nil
+		return []account.Account{}
 	}
 	list := account.Load(path)
 	a.mu.Lock()
@@ -242,10 +242,11 @@ func (a *App) MarkBadAccount(index int) ([]account.Account, error) {
 // ClearAccounts 清空整个账号队列。
 func (a *App) ClearAccounts() []account.Account {
 	a.mu.Lock()
-	a.accounts = nil
+	a.accounts = []account.Account{}
 	a.saveAccountsLocked()
+	list := a.accounts
 	a.mu.Unlock()
-	return nil
+	return list
 }
 
 // ExportAccountsResult 弹出保存框，把账号队列及统计导出为 CSV；取消保存返回空字符串。
@@ -486,10 +487,14 @@ func (a *App) StopPublish() {
 }
 
 // GetPublishResults 返回本次发布任务里已经成功的结果列表，供"查看链接"展示。
+// 返回值必须是非 nil 切片：append(nil) 在没有元素可加时仍然是 nil，
+// 序列化成 JSON 会变成 null，参见 internal/account.Load 上的注释。
 func (a *App) GetPublishResults() []PublishResult {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	return append([]PublishResult(nil), a.results...)
+	out := make([]PublishResult, len(a.results))
+	copy(out, a.results)
+	return out
 }
 
 func (a *App) emitInfo(msg string) {

@@ -53,13 +53,20 @@ func DefaultPath() (string, error) {
 }
 
 // Load 从 path 指向的 JSON 文件读取账号列表；文件不存在或内容损坏时返回空列表。
+// 返回值始终是非 nil 的切片：Go 的 nil 切片编码成 JSON 会变成 null，
+// 传到前端会让 `accounts.value` 变成 null 而不是空数组，导致模板里
+// 任何 accounts.length / accounts.map 之类的访问直接抛异常，把整个
+// 页面渲染搞崩——这里必须显式兜底，不能只判断 len() 是否为 0。
 func Load(path string) []Account {
+	list := []Account{}
 	b, err := os.ReadFile(path)
 	if err != nil {
-		return nil
+		return list
 	}
-	var list []Account
 	_ = json.Unmarshal(b, &list)
+	if list == nil {
+		list = []Account{}
+	}
 	return list
 }
 

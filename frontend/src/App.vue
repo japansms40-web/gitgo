@@ -100,7 +100,7 @@ const pill = computed(() => {
 onMounted(async () => {
   const loaded = await App.LoadConfig()
   Object.assign(cfg, loaded)
-  accounts.value = await App.LoadAccounts()
+  accounts.value = (await App.LoadAccounts()) ?? []
 
   EventsOn('publish:log', (line) => {
     logs.value.push(line)
@@ -161,34 +161,34 @@ async function onClearContent() {
 async function onImportAccountClick() {
   try {
     const paths = await App.SelectAccountFiles()
-    if (paths && paths.length) accounts.value = await App.ImportAccountsFile(paths)
+    if (paths && paths.length) accounts.value = (await App.ImportAccountsFile(paths)) ?? []
   } catch (e) {
     showBanner(String(e))
   }
 }
 async function onPasteClipboard() {
   try {
-    accounts.value = await App.PasteAccountsFromClipboard()
+    accounts.value = (await App.PasteAccountsFromClipboard()) ?? []
   } catch (e) {
     showBanner(String(e))
   }
 }
 async function onRemoveAccount(index) {
   try {
-    accounts.value = await App.RemoveAccount(index)
+    accounts.value = (await App.RemoveAccount(index)) ?? []
   } catch (e) {
     showBanner(String(e))
   }
 }
 async function onMarkBad(index) {
   try {
-    accounts.value = await App.MarkBadAccount(index)
+    accounts.value = (await App.MarkBadAccount(index)) ?? []
   } catch (e) {
     showBanner(String(e))
   }
 }
 async function onClearAccounts() {
-  accounts.value = await App.ClearAccounts()
+  accounts.value = (await App.ClearAccounts()) ?? []
 }
 async function onExportResult() {
   const err = await App.ExportAccountsResult()
@@ -252,7 +252,7 @@ function onSwitchProfile() {
   showBanner('换号特征编辑功能待实现，需要你进一步说明具体字段')
 }
 async function onViewResults() {
-  results.value = await App.GetPublishResults()
+  results.value = (await App.GetPublishResults()) ?? []
   showResults.value = true
 }
 async function onCopyAllResults() {
