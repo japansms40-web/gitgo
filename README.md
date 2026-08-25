@@ -1,17 +1,17 @@
 # GitHub 文章发布器
 
-用个人 Access Token 把本地 Markdown 文章批量发布到你自己的 GitHub 仓库。带图形界面，单可执行文件。
+用账号队列（CK/UA/IP）把本地 Markdown 内容批量发布到自有系统。带图形界面，单可执行文件。
 
 ## 使用
-1. 在 GitHub 生成 Personal Access Token（勾选 `repo` 权限；若要自动建仓库还需 `public_repo`）。
-2. 打开程序，填入 Token、Owner、Repo、分支、目标目录，点「验证 Token」。
-3. 「选择文件夹」或「添加文件」导入 `.md`/`.txt`（`.txt` 会以 `.md` 提交，文件名作为标题）。
-4. 点「开始发布」。进度、状态、结果链接实时显示，可「停止」，可「导出链接列表」。
+1. 右侧运行参数面板「选择文件夹」或「添加文件」导入 `.md`/`.txt` 作为待发布内容（文件名作为标题）。
+2. 发布页导入账号：拖入 TXT 文件、点「导入账号」选文件，或双击「双击粘贴剪贴板」粘贴，多个账号用 `----` 分隔。
+3. 可设发布间隔与失败重试次数，点「开始发布」。账号队列逐个发布一篇内容（内容不够会循环使用），进度、日志实时显示，可「停止」。
+4. 右键账号行可复制 CK、单独测试、移出列表或标记为坏号（批量发布时会跳过坏号）；顶部可搜索、按状态筛选、导出结果。
 
 ## 说明
-- 单账号、单仓库；文件已存在则更新覆盖。
-- 每篇一次提交，可设发布间隔与失败重试；遇 API 限流会按 `Retry-After` 等待重试。
-- 设置（含 Token）保存在本机的配置文件中（macOS: `~/Library/Application Support/ghpublisher/config.json`）。
+- 账号队列长期持久化，成功/失败/总数是跨多次发布的累计值。
+- 项目尚未接入目标系统的真实发布协议（CK 怎么带、UA/IP 怎么用、怎么判定成功失败），发布/测试目前走占位实现（`internal/accountpublish.TODORequester`），会直接返回失败，方便先验证队列与状态流转；接口细节确定后实现一个新的 `Requester` 换掉它即可。
+- 运行参数保存在本机的配置文件中（macOS: `~/Library/Application Support/ghpublisher/config.json`），账号队列保存在同目录的 `accounts.json`。
 
 ## 技术栈
 Go 后端（业务逻辑见 `internal/`） + Vue 3 前端（`frontend/`），通过 [Wails](https://wails.io) 打包成单个原生桌面可执行文件。

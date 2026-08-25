@@ -5,43 +5,35 @@ import (
 	"testing"
 )
 
-func TestValidate(t *testing.T) {
-	cases := []struct {
-		name    string
-		cfg     Config
-		wantErr bool
-	}{
-		{"完整", Config{Token: "t", Owner: "o", Repo: "r", Branch: "main", Dir: "posts", IntervalSec: 1, Retries: 2}, false},
-		{"缺Token", Config{Owner: "o", Repo: "r", Branch: "main"}, true},
-		{"缺Owner", Config{Token: "t", Repo: "r", Branch: "main"}, true},
-		{"缺Repo", Config{Token: "t", Owner: "o", Branch: "main"}, true},
+func TestNormalizeClampsInvalid(t *testing.T) {
+	cfg := Config{
+		Threads: -1, IntervalSec: -1, PerAccountCount: -1,
+		FailSwitchCount: -1, CycleRounds: -1, RoundIntervalSec: -1, KeywordSlots: -1,
 	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			err := c.cfg.Validate()
-			if (err != nil) != c.wantErr {
-				t.Fatalf("Validate() err=%v, wantErr=%v", err, c.wantErr)
-			}
-		})
+	cfg.Normalize()
+	want := Config{Threads: 1, PerAccountCount: 1, FailSwitchCount: 1, CycleRounds: 1}
+	if cfg != want {
+		t.Errorf("非法值应被纠正为最小合法值, got %+v, want %+v", cfg, want)
 	}
 }
 
-func TestNormalizeDefaults(t *testing.T) {
-	cfg := Config{Token: "t", Owner: "o", Repo: "r"}
-	cfg.Normalize()
-	if cfg.Branch != "main" {
-		t.Errorf("Branch 默认应为 main, got %q", cfg.Branch)
+func TestNormalizeKeepsPositive(t *testing.T) {
+	cfg := Config{
+		Threads: 10, IntervalSec: 2, PerAccountCount: 1000,
+		FailSwitchCount: 100, CycleRounds: 3, RoundIntervalSec: 1, KeywordSlots: 3, CreateRepo: true,
 	}
-	if cfg.IntervalSec < 0 || cfg.Retries < 0 {
-		t.Errorf("间隔/重试不应为负")
+	want := cfg
+	cfg.Normalize()
+	if cfg != want {
+		t.Errorf("合法值不应被改动, got %+v, want %+v", cfg, want)
 	}
 }
 
 func TestSaveLoadRoundTrip(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "nested", "config.json")
 	cfg := Config{
-		Token: "t", Owner: "o", Repo: "r", Branch: "dev", Dir: "articles",
-		AutoCreate: true, IntervalSec: 3, Retries: 5,
+		Threads: 5, IntervalSec: 2, PerAccountCount: 50,
+		FailSwitchCount: 10, CycleRounds: 2, RoundIntervalSec: 3, KeywordSlots: 2, CreateRepo: true,
 	}
 	if err := cfg.Save(path); err != nil {
 		t.Fatalf("Save() error = %v", err)
@@ -53,7 +45,7 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 
 func TestLoadMissingFileReturnsDefaults(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.json")
-	want := Config{Branch: "main", Dir: "posts", IntervalSec: 1, Retries: 2}
+	want := defaults()
 	if got := Load(path); got != want {
 		t.Errorf("Load() = %+v, want %+v", got, want)
 	}

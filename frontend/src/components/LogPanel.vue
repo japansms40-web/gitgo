@@ -42,9 +42,15 @@ function msgColor(line) {
       <label class="log-check">
         <input
           type="checkbox"
+          class="sr-only"
           :checked="autoScroll"
           @change="emit('update:autoScroll', $event.target.checked)"
         />
+        <span class="log-checkbox-box" :class="{ checked: autoScroll }">
+          <svg v-if="autoScroll" width="9" height="9" viewBox="0 0 16 16" fill="none" stroke="#0b0e12" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M3 8.2l3.3 3.3L13 4.5" />
+          </svg>
+        </span>
         自动滚动
       </label>
       <span class="log-action" @click="emit('copy')">复制</span>
@@ -96,6 +102,32 @@ function msgColor(line) {
   align-items: center;
   gap: 6px;
   cursor: pointer;
+}
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+.log-checkbox-box {
+  flex: 0 0 13px;
+  width: 13px;
+  height: 13px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #3d444d;
+  border-radius: 3px;
+  background: transparent;
+}
+.log-checkbox-box.checked {
+  background: #e6edf3;
+  border-color: #e6edf3;
 }
 .log-action {
   cursor: pointer;

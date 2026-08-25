@@ -4,20 +4,22 @@ import (
 	"errors"
 	"testing"
 
-	"githubbaidu/internal/publisher"
+	"githubbaidu/internal/accountpublish"
 )
 
 func TestTagForKindsAndHighlight(t *testing.T) {
 	cases := []struct {
-		kind     publisher.EventKind
+		kind     accountpublish.EventKind
 		wantTag  string
 		wantKind Kind
 		wantHi   bool
 	}{
-		{publisher.EventStart, "[开始]", KindStart, false},
-		{publisher.EventSuccess, "[成功]", KindSuccess, false},
-		{publisher.EventFailure, "[失败]", KindFailure, true},
-		{publisher.EventRetry, "[重试]", KindRetry, true},
+		{accountpublish.EventAttemptStart, "[开始]", KindStart, false},
+		{accountpublish.EventAttemptSuccess, "[成功]", KindSuccess, false},
+		{accountpublish.EventAttemptFailure, "[失败]", KindFailure, true},
+		{accountpublish.EventAccountSwitch, "[换号]", KindSwitch, true},
+		{accountpublish.EventRoundStart, "[轮次]", KindInfo, false},
+		{accountpublish.EventRoundDone, "[轮次]", KindInfo, false},
 	}
 	for _, c := range cases {
 		tag, kind, hi := TagFor(c.kind)
@@ -29,13 +31,15 @@ func TestTagForKindsAndHighlight(t *testing.T) {
 
 func TestLineForFormatting(t *testing.T) {
 	cases := []struct {
-		event publisher.Event
+		event accountpublish.Event
 		want  string
 	}{
-		{publisher.Event{Kind: publisher.EventStart, Title: "hello"}, "hello"},
-		{publisher.Event{Kind: publisher.EventSuccess, Title: "hello", URL: "http://x/y"}, "hello → http://x/y"},
-		{publisher.Event{Kind: publisher.EventFailure, Title: "hello", Err: errors.New("boom")}, "hello 失败: boom"},
-		{publisher.Event{Kind: publisher.EventRetry, Title: "hello", Err: errors.New("net")}, "hello 重试: net"},
+		{accountpublish.Event{Kind: accountpublish.EventAttemptStart, CK: "ck1", ArticleTitle: "hello"}, "账号 ck1 开始发布《hello》"},
+		{accountpublish.Event{Kind: accountpublish.EventAttemptSuccess, CK: "ck1", ArticleTitle: "hello", Result: "ok"}, "账号 ck1 发布《hello》成功: ok"},
+		{accountpublish.Event{Kind: accountpublish.EventAttemptFailure, CK: "ck1", ArticleTitle: "hello", Err: errors.New("boom")}, "账号 ck1 发布《hello》失败: boom"},
+		{accountpublish.Event{Kind: accountpublish.EventAccountSwitch, CK: "ck1", Err: errors.New("连续失败达到换号阈值")}, "账号 ck1 换号: 连续失败达到换号阈值"},
+		{accountpublish.Event{Kind: accountpublish.EventRoundStart, Round: 2, RoundTotal: 5}, "第 2 轮开始，共 5 个账号"},
+		{accountpublish.Event{Kind: accountpublish.EventRoundDone, Round: 2}, "第 2 轮结束"},
 	}
 	for _, c := range cases {
 		if got := LineFor(c.event); got != c.want {

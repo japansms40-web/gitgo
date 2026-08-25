@@ -1,14 +1,45 @@
+export namespace account {
+	
+	export class Account {
+	    ck: string;
+	    ua: string;
+	    ip: string;
+	    status: string;
+	    success: number;
+	    fail: number;
+	    total: number;
+	    bad: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new Account(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.ck = source["ck"];
+	        this.ua = source["ua"];
+	        this.ip = source["ip"];
+	        this.status = source["status"];
+	        this.success = source["success"];
+	        this.fail = source["fail"];
+	        this.total = source["total"];
+	        this.bad = source["bad"];
+	    }
+	}
+
+}
+
 export namespace config {
 	
 	export class Config {
-	    token: string;
-	    owner: string;
-	    repo: string;
-	    branch: string;
-	    dir: string;
-	    autoCreate: boolean;
+	    threads: number;
 	    intervalSec: number;
-	    retries: number;
+	    perAccountCount: number;
+	    failSwitchCount: number;
+	    cycleRounds: number;
+	    roundIntervalSec: number;
+	    keywordSlots: number;
+	    createRepo: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new Config(source);
@@ -16,14 +47,14 @@ export namespace config {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.token = source["token"];
-	        this.owner = source["owner"];
-	        this.repo = source["repo"];
-	        this.branch = source["branch"];
-	        this.dir = source["dir"];
-	        this.autoCreate = source["autoCreate"];
+	        this.threads = source["threads"];
 	        this.intervalSec = source["intervalSec"];
-	        this.retries = source["retries"];
+	        this.perAccountCount = source["perAccountCount"];
+	        this.failSwitchCount = source["failSwitchCount"];
+	        this.cycleRounds = source["cycleRounds"];
+	        this.roundIntervalSec = source["roundIntervalSec"];
+	        this.keywordSlots = source["keywordSlots"];
+	        this.createRepo = source["createRepo"];
 	    }
 	}
 
@@ -31,9 +62,26 @@ export namespace config {
 
 export namespace main {
 	
+	export class PublishResult {
+	    time: string;
+	    ck: string;
+	    title: string;
+	    value: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new PublishResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.time = source["time"];
+	        this.ck = source["ck"];
+	        this.title = source["title"];
+	        this.value = source["value"];
+	    }
+	}
 	export class QueueItem {
 	    title: string;
-	    repoPath: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new QueueItem(source);
@@ -42,7 +90,6 @@ export namespace main {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.title = source["title"];
-	        this.repoPath = source["repoPath"];
 	    }
 	}
 

@@ -11,7 +11,7 @@ defineProps({
 <template>
   <div class="status-bar">
     <div class="cell">
-      <span class="label">总数</span><span class="mono">{{ total }}</span>
+      <span class="label">账号</span><span class="mono">{{ total }}</span>
     </div>
     <div class="cell">
       <span class="label">成功</span><span class="mono ok">{{ success }}</span>

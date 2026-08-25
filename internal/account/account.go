@@ -1,0 +1,76 @@
+// Package account 管理发布用的账号队列（CK/UA/IP），独立于任何 UI 类型。
+package account
+
+import (
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"strings"
+)
+
+// 账号状态取值；与前端展示的中文文案保持一致。
+const (
+	StatusPending = "待发"
+	StatusRunning = "发布中"
+	StatusSuccess = "成功"
+	StatusFailed  = "失败"
+)
+
+// Account 是队列中的一个发布账号。json tag 同时决定磁盘持久化格式与前端绑定收到的字段名。
+type Account struct {
+	CK      string `json:"ck"`
+	UA      string `json:"ua"`
+	IP      string `json:"ip"`
+	Status  string `json:"status"`
+	Success int    `json:"success"`
+	Fail    int    `json:"fail"`
+	Total   int    `json:"total"`
+	Bad     bool   `json:"bad"` // 手动标记为坏号，批量发布时跳过
+}
+
+// ParseImportText 把粘贴/拖入的文本按 "----" 分隔解析为账号列表；
+// 每段去除首尾空白后作为一个账号的 CK，空段落忽略。
+func ParseImportText(text string) []Account {
+	parts := strings.Split(text, "----")
+	out := make([]Account, 0, len(parts))
+	for _, p := range parts {
+		ck := strings.TrimSpace(p)
+		if ck == "" {
+			continue
+		}
+		out = append(out, Account{CK: ck, Status: StatusPending})
+	}
+	return out
+}
+
+// DefaultPath 返回账号队列在当前系统上的默认存放路径。
+func DefaultPath() (string, error) {
+	dir, err := os.UserConfigDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "ghpublisher", "accounts.json"), nil
+}
+
+// Load 从 path 指向的 JSON 文件读取账号列表；文件不存在或内容损坏时返回空列表。
+func Load(path string) []Account {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	var list []Account
+	_ = json.Unmarshal(b, &list)
+	return list
+}
+
+// Save 把账号列表写入 path 指向的 JSON 文件，按需创建父目录。
+func Save(path string, list []Account) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
+	b, err := json.MarshalIndent(list, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, b, 0o600)
+}

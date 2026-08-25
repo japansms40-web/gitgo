@@ -7,6 +7,7 @@ import HelpPage from './components/HelpPage.vue'
 import RunParamsPanel from './components/RunParamsPanel.vue'
 import LogPanel from './components/LogPanel.vue'
 import StatusBar from './components/StatusBar.vue'
+import ResultsModal from './components/ResultsModal.vue'
 import * as App from '../wailsjs/go/main/App'
 import { EventsOn } from '../wailsjs/runtime/runtime'
 
@@ -27,22 +28,28 @@ applyTheme()
 const page = ref('publish')
 
 const cfg = reactive({
-  token: '',
-  owner: '',
-  repo: '',
-  branch: 'main',
-  dir: 'posts',
-  autoCreate: false,
+  threads: 1,
   intervalSec: 1,
-  retries: 2,
+  perAccountCount: 1,
+  failSwitchCount: 3,
+  cycleRounds: 1,
+  roundIntervalSec: 1,
+  keywordSlots: 0,
+  createRepo: false,
 })
-const tokenStatus = ref('')
-const queue = ref([]) // {title, repoPath, status, url}
+const accounts = ref([]) // {ck, ua, ip, status, success, fail, total, bad}
+const contentCount = ref(0)
 const running = ref(false)
-const logs = ref([]) // {time, tag, kind, msg, highlight}
+const paused = ref(false)
+const round = ref(0)
+const roundDone = ref(0)
+const roundTotal = ref(0)
+const logs = ref([])
 const autoScroll = ref(true)
 const elapsed = ref('00:00')
 const banner = ref('')
+const showResults = ref(false)
+const results = ref([])
 
 let startedAt = 0
 let timer = null
@@ -68,49 +75,44 @@ function pushLog(kind, tag, msg, highlight = false) {
   if (logs.value.length > 1000) logs.value.shift()
 }
 
-const doneCount = computed(() => queue.value.filter((q) => q.status === '成功' || q.status.startsWith('失败')).length)
-const failedCount = computed(() => queue.value.filter((q) => q.status.startsWith('失败')).length)
-const successCount = computed(() => queue.value.filter((q) => q.status === '成功').length)
+const successCount = computed(() => accounts.value.filter((a) => a.status === '成功').length)
+const failedCount = computed(() => accounts.value.filter((a) => a.status === '失败').length)
+const pendingCount = computed(() => accounts.value.length - successCount.value - failedCount.value)
 
 const pill = computed(() => {
-  const total = queue.value.length
-  const done = doneCount.value
-  const failed = failedCount.value
+  const total = accounts.value.length
+  const done = successCount.value + failedCount.value
   if (running.value) return { text: `发布中 · ${done}/${total}`, kind: 'running' }
   if (total === 0 || done === 0) return { text: '待机', kind: 'muted' }
-  if (failed > 0) return { text: `已完成 · ${done - failed} 成功 · ${failed} 失败`, kind: 'error' }
+  if (failedCount.value > 0) return { text: `已完成 · ${successCount.value} 成功 · ${failedCount.value} 失败`, kind: 'error' }
   return { text: `已完成 · ${done}/${total}`, kind: 'success' }
 })
 
 onMounted(async () => {
   const loaded = await App.LoadConfig()
   Object.assign(cfg, loaded)
+  accounts.value = await App.LoadAccounts()
 
   EventsOn('publish:log', (line) => {
     logs.value.push(line)
     if (logs.value.length > 1000) logs.value.shift()
   })
-  EventsOn('publish:status', (u) => {
-    const item = queue.value[u.index]
+  EventsOn('publish:account', (u) => {
+    const item = accounts.value[u.index]
     if (!item) return
-    switch (u.kind) {
-      case 'start':
-        item.status = '发布中'
-        break
-      case 'success':
-        item.status = '成功'
-        item.url = u.url
-        break
-      case 'failure':
-        item.status = '失败: ' + u.err
-        break
-      case 'retry':
-        item.status = '重试中: ' + u.err
-        break
-    }
+    item.status = u.status
+    item.success = u.success
+    item.fail = u.fail
+    item.total = u.total
+  })
+  EventsOn('publish:round', (u) => {
+    round.value = u.round
+    roundDone.value = u.done
+    roundTotal.value = u.total
   })
   EventsOn('publish:done', (errMsg) => {
     running.value = false
+    paused.value = false
     if (timer) {
       clearInterval(timer)
       timer = null
@@ -123,46 +125,93 @@ onUnmounted(() => {
   if (timer) clearInterval(timer)
 })
 
-async function rescanQueue(paths) {
+// ---- 发布内容（本地 Markdown/文本） ----
+async function rescanContent(paths) {
   if (!paths || paths.length === 0) return
   try {
-    const items = await App.ScanQueue(paths, cfg.dir)
-    queue.value = items.map((it) => ({ title: it.title, repoPath: it.repoPath, status: '待发布', url: '' }))
+    const items = await App.ScanQueue(paths)
+    contentCount.value = items.length
   } catch (e) {
     showBanner(String(e))
   }
 }
-
-async function onSelectFolder() {
+async function onSelectContentFolder() {
   const dirPath = await App.SelectFolder()
-  if (dirPath) await rescanQueue([dirPath])
+  if (dirPath) await rescanContent([dirPath])
 }
-async function onSelectFiles() {
+async function onSelectContentFiles() {
   const files = await App.SelectFiles()
-  if (files && files.length) await rescanQueue(files)
+  if (files && files.length) await rescanContent(files)
 }
-async function onClearQueue() {
+async function onClearContent() {
   await App.ClearQueue()
-  queue.value = []
+  contentCount.value = 0
 }
 
-async function onValidateToken() {
-  if (!cfg.token) {
-    showBanner('请先填写 Token')
-    return
-  }
-  tokenStatus.value = '验证中…'
+// ---- 账号队列 ----
+async function onImportAccountClick() {
   try {
-    const login = await App.ValidateToken(cfg.token)
-    tokenStatus.value = '✓ 已登录: ' + login
+    const paths = await App.SelectAccountFiles()
+    if (paths && paths.length) accounts.value = await App.ImportAccountsFile(paths)
   } catch (e) {
-    tokenStatus.value = '无效: ' + e
+    showBanner(String(e))
   }
+}
+async function onImportAccountFiles(paths) {
+  try {
+    accounts.value = await App.ImportAccountsFile(paths)
+  } catch (e) {
+    showBanner(String(e))
+  }
+}
+async function onPasteClipboard() {
+  try {
+    accounts.value = await App.PasteAccountsFromClipboard()
+  } catch (e) {
+    showBanner(String(e))
+  }
+}
+async function onRemoveAccount(index) {
+  try {
+    accounts.value = await App.RemoveAccount(index)
+  } catch (e) {
+    showBanner(String(e))
+  }
+}
+async function onMarkBad(index) {
+  try {
+    accounts.value = await App.MarkBadAccount(index)
+  } catch (e) {
+    showBanner(String(e))
+  }
+}
+async function onClearAccounts() {
+  accounts.value = await App.ClearAccounts()
+}
+async function onExportResult() {
+  const err = await App.ExportAccountsResult()
+  if (err) showBanner(err)
+}
+async function onTestAccount(index) {
+  try {
+    const updated = await App.TestAccount(index)
+    accounts.value[index] = updated
+  } catch (e) {
+    showBanner(String(e))
+  }
+}
+async function onCopyCK(ck) {
+  if (!ck) return
+  await App.CopyToClipboard(ck)
 }
 
 async function onStart() {
-  if (queue.value.length === 0) {
-    showBanner('队列为空，请先添加文件')
+  if (contentCount.value === 0) {
+    showBanner('请先选择要发布的内容')
+    return
+  }
+  if (accounts.value.filter((a) => !a.bad).length === 0) {
+    showBanner('账号队列为空（或都已标记为坏号），请先导入账号')
     return
   }
   const err = await App.StartPublish({ ...cfg })
@@ -171,15 +220,42 @@ async function onStart() {
     return
   }
   running.value = true
+  paused.value = false
+  round.value = 0
+  roundDone.value = 0
+  roundTotal.value = 0
   startedAt = Date.now()
   elapsed.value = '00:00'
-  pushLog('info', '[信息]', `开始发布 ${queue.value.length} 篇到 ${cfg.owner}/${cfg.repo}`)
+  pushLog('info', '[信息]', `开始发布，账号 ${accounts.value.length} 个，内容 ${contentCount.value} 篇`)
   timer = setInterval(() => {
     elapsed.value = formatElapsed(Date.now() - startedAt)
   }, 1000)
 }
+async function onPause() {
+  await App.PausePublish()
+  paused.value = true
+}
+async function onResume() {
+  await App.ResumePublish()
+  paused.value = false
+}
 async function onStop() {
   await App.StopPublish()
+}
+
+function onKeywordSettings() {
+  showBanner('关键词设置功能待实现，需要你进一步说明关键词库和插入规则')
+}
+function onSwitchProfile() {
+  showBanner('换号特征编辑功能待实现，需要你进一步说明具体字段')
+}
+async function onViewResults() {
+  results.value = await App.GetPublishResults()
+  showResults.value = true
+}
+async function onCopyAllResults() {
+  const text = results.value.map((r) => `${r.time} ${r.ck} ${r.title} ${r.value}`).join('\n')
+  await App.CopyToClipboard(text)
 }
 
 async function onSaveConfig() {
@@ -189,16 +265,6 @@ async function onSaveConfig() {
     return
   }
   pushLog('info', '[信息]', '配置已保存')
-}
-
-async function onExportLinks() {
-  const urls = queue.value.filter((q) => q.status === '成功' && q.url).map((q) => q.url)
-  if (urls.length === 0) {
-    showBanner('暂无成功链接')
-    return
-  }
-  const err = await App.ExportLinks(urls)
-  if (err) showBanner(err)
 }
 
 function logText() {
@@ -227,31 +293,47 @@ function onClearLog() {
 
       <PublishPage
         v-if="page === 'publish'"
-        v-model:token="cfg.token"
-        v-model:owner="cfg.owner"
-        v-model:repo="cfg.repo"
-        v-model:branch="cfg.branch"
-        v-model:dir="cfg.dir"
-        :token-status="tokenStatus"
-        :queue="queue"
-        @validate-token="onValidateToken"
-        @select-folder="onSelectFolder"
-        @select-files="onSelectFiles"
-        @clear-queue="onClearQueue"
+        :accounts="accounts"
+        @import-account-click="onImportAccountClick"
+        @import-account-files="onImportAccountFiles"
+        @paste-clipboard="onPasteClipboard"
+        @remove-account="onRemoveAccount"
+        @mark-bad="onMarkBad"
+        @clear-accounts="onClearAccounts"
+        @export-result="onExportResult"
+        @test-account="onTestAccount"
+        @copy-ck="onCopyCK"
+        @save-config="onSaveConfig"
       />
       <HelpPage v-else />
 
       <RunParamsPanel
+        v-model:threads="cfg.threads"
         v-model:interval-sec="cfg.intervalSec"
-        v-model:retries="cfg.retries"
-        v-model:auto-create="cfg.autoCreate"
-        :queue-count="queue.length"
+        v-model:per-account-count="cfg.perAccountCount"
+        v-model:fail-switch-count="cfg.failSwitchCount"
+        v-model:cycle-rounds="cfg.cycleRounds"
+        v-model:round-interval-sec="cfg.roundIntervalSec"
+        v-model:keyword-slots="cfg.keywordSlots"
+        v-model:create-repo="cfg.createRepo"
+        :content-count="contentCount"
         :running="running"
+        :paused="paused"
+        :round="round"
+        :round-done="roundDone"
+        :round-total="roundTotal"
+        @select-folder="onSelectContentFolder"
+        @select-files="onSelectContentFiles"
+        @clear-content="onClearContent"
         @start="onStart"
+        @pause="onPause"
+        @resume="onResume"
         @stop="onStop"
         @save-config="onSaveConfig"
-        @clear-queue="onClearQueue"
-        @export-links="onExportLinks"
+        @clear-accounts="onClearAccounts"
+        @keyword-settings="onKeywordSettings"
+        @switch-profile="onSwitchProfile"
+        @view-results="onViewResults"
       />
     </div>
 
@@ -263,11 +345,18 @@ function onClearLog() {
       @clear="onClearLog"
     />
     <StatusBar
-      :total="queue.length"
+      :total="accounts.length"
       :success="successCount"
       :fail="failedCount"
-      :pending="queue.length - doneCount"
+      :pending="pendingCount"
       :elapsed="elapsed"
+    />
+
+    <ResultsModal
+      v-if="showResults"
+      :results="results"
+      @close="showResults = false"
+      @copy-all="onCopyAllResults"
     />
   </div>
 </template>
