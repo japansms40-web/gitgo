@@ -2,7 +2,10 @@ module githubbaidu
 
 go 1.26
 
-require github.com/wailsapp/wails/v2 v2.15.0
+require (
+	dfclientkit v0.0.0-00010101000000-000000000000
+	github.com/wailsapp/wails/v2 v2.15.0
+)
 
 replace dfclientkit => ../../../dfclientkit/go
 
