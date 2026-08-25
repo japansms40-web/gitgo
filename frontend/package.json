@@ -10,7 +10,7 @@
   },
   "dependencies": {
     "vue": "^3.5.0",
-    "@dongfang/df-ui-shell": "file:../../../../dfclientkit/ui-shell"
+    "@dongfang/df-ui-shell": "file:../../dfclientkit/ui-shell"
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "^6.0.0",

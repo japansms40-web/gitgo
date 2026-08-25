@@ -7,7 +7,7 @@ require (
 	github.com/wailsapp/wails/v2 v2.15.0
 )
 
-replace dfclientkit => ../../../dfclientkit/go
+replace dfclientkit => ../dfclientkit/go
 
 require (
 	git.sr.ht/~jackmordaunt/go-toast/v2 v2.0.3 // indirect

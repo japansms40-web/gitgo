@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url'
 import { dirname, resolve } from 'node:path'
 
 const rootDir = dirname(fileURLToPath(import.meta.url)) // 本项目 frontend/ 目录
-const dfclientkitDir = resolve(rootDir, '../../../../dfclientkit')
+const dfclientkitDir = resolve(rootDir, '../../dfclientkit')
 
 export default defineConfig({
   plugins: [vue()],
