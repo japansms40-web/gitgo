@@ -137,7 +137,7 @@ function summary(bodyText) {
         </div>
 
         <fieldset class="box">
-          <legend>标题模板 Title</legend>
+          <legend>{标题}</legend>
           <input
             class="input"
             placeholder="例如：{关键词}-{英文=5}{小写=3}"
@@ -147,7 +147,7 @@ function summary(bodyText) {
         </fieldset>
 
         <fieldset class="box box-grow">
-          <legend>正文模板 Body · 支持右侧全部标签</legend>
+          <legend>【内容】支持右侧所有标签</legend>
 
           <div class="option-row">
             <label class="checkbox-row">
