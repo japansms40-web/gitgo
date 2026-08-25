@@ -85,23 +85,13 @@ func (a *App) startup(ctx context.Context) { a.ctx = ctx }
 
 // LoadConfig 读取磁盘上保存的任务参数；不存在则返回默认值。
 func (a *App) LoadConfig() config.Config {
-	path, err := config.DefaultPath()
-	if err != nil {
-		c := config.Config{}
-		c.Normalize()
-		return c
-	}
-	return config.Load(path)
+	return config.Load()
 }
 
 // SaveConfig 把任务参数写入磁盘；出错时返回错误文案，成功返回空字符串。
 func (a *App) SaveConfig(cfg config.Config) string {
 	cfg.Normalize()
-	path, err := config.DefaultPath()
-	if err != nil {
-		return err.Error()
-	}
-	if err := cfg.Save(path); err != nil {
+	if err := config.Save(cfg); err != nil {
 		return err.Error()
 	}
 	return ""
@@ -432,7 +422,7 @@ func (a *App) applyAccountEvent(e accountpublish.Event) {
 		acc.Success++
 		acc.Total++
 		a.results = append(a.results, PublishResult{
-			Time: time.Now().Format("15:04:05"), CK: e.CK, Title: e.ArticleTitle, Value: e.Result,
+			Time: time.Now().Format("15:04:05"), CK: e.CK, Title: e.ItemLabel, Value: e.Result,
 		})
 		a.saveAccountsLocked()
 	case accountpublish.EventAttemptFailure:
