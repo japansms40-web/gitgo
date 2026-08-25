@@ -1,5 +1,6 @@
 /.idea/
 /.claude/worktrees/
+/.worktrees/
 /.superpowers/
 /build/bin/
 /frontend/node_modules/
