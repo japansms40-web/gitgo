@@ -4,6 +4,7 @@ import TitleBar from './components/TitleBar.vue'
 import NavRail from './components/NavRail.vue'
 import PublishPage from './components/PublishPage.vue'
 import HelpPage from './components/HelpPage.vue'
+import PlaceholderPage from './components/PlaceholderPage.vue'
 import RunParamsPanel from './components/RunParamsPanel.vue'
 import LogPanel from './components/LogPanel.vue'
 import StatusBar from './components/StatusBar.vue'
@@ -26,6 +27,14 @@ function toggleTheme() {
 applyTheme()
 
 const page = ref('publish')
+const PLACEHOLDER_PAGES = {
+  content: { title: '内容设置', subtitle: 'CONTENT' },
+  proxy: { title: 'IP 设置', subtitle: 'PROXY' },
+  captcha: { title: '打码设置', subtitle: 'CAPTCHA' },
+  spider: { title: '蜘蛛设置', subtitle: 'SPIDER' },
+  links: { title: '其他设置', subtitle: 'URL / LINKS' },
+  collect: { title: '采集文章', subtitle: 'COLLECT' },
+}
 
 const cfg = reactive({
   threads: 1,
@@ -153,13 +162,6 @@ async function onImportAccountClick() {
   try {
     const paths = await App.SelectAccountFiles()
     if (paths && paths.length) accounts.value = await App.ImportAccountsFile(paths)
-  } catch (e) {
-    showBanner(String(e))
-  }
-}
-async function onImportAccountFiles(paths) {
-  try {
-    accounts.value = await App.ImportAccountsFile(paths)
   } catch (e) {
     showBanner(String(e))
   }
@@ -295,7 +297,6 @@ function onClearLog() {
         v-if="page === 'publish'"
         :accounts="accounts"
         @import-account-click="onImportAccountClick"
-        @import-account-files="onImportAccountFiles"
         @paste-clipboard="onPasteClipboard"
         @remove-account="onRemoveAccount"
         @mark-bad="onMarkBad"
@@ -305,7 +306,12 @@ function onClearLog() {
         @copy-ck="onCopyCK"
         @save-config="onSaveConfig"
       />
-      <HelpPage v-else />
+      <HelpPage v-else-if="page === 'help'" />
+      <PlaceholderPage
+        v-else
+        :title="PLACEHOLDER_PAGES[page].title"
+        :subtitle="PLACEHOLDER_PAGES[page].subtitle"
+      />
 
       <RunParamsPanel
         v-model:threads="cfg.threads"

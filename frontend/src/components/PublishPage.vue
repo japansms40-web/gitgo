@@ -1,13 +1,11 @@
 <script setup>
 import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
-import { OnFileDrop, OnFileDropOff } from '../../wailsjs/runtime/runtime'
 
 const props = defineProps({
   accounts: { type: Array, required: true }, // {ck, ua, ip, status, success, fail, total, bad}
 })
 const emit = defineEmits([
   'import-account-click',
-  'import-account-files',
   'paste-clipboard',
   'remove-account',
   'mark-bad',
@@ -94,16 +92,10 @@ function menuAction(action) {
   else if (action === 'bad') emit('mark-bad', i)
 }
 
-// ---- 拖入 TXT 批量导入 ----
 onMounted(() => {
-  OnFileDrop((x, y, paths) => {
-    const txtPaths = paths.filter((p) => p.toLowerCase().endsWith('.txt'))
-    if (txtPaths.length) emit('import-account-files', txtPaths)
-  }, true)
   window.addEventListener('click', closeMenu)
 })
 onUnmounted(() => {
-  OnFileDropOff()
   window.removeEventListener('click', closeMenu)
 })
 </script>
@@ -113,7 +105,7 @@ onUnmounted(() => {
     <div class="page-header">
       <div class="page-title">
         <span class="page-title-main">发布 Publish</span>
-        <span class="page-title-sub">账号队列与发布结果，双击粘贴剪贴板 · 拖入 TXT 批量导入</span>
+        <span class="page-title-sub">账号队列与发布结果，双击粘贴剪贴板 · 点「导入账号」批量导入</span>
       </div>
       <div class="spacer" />
       <div class="page-actions">
@@ -173,10 +165,10 @@ onUnmounted(() => {
           </tr>
         </tbody>
       </table>
-      <div v-else class="empty">还没有账号，拖入 TXT 文件、点「导入账号」，或双击「双击粘贴剪贴板」导入</div>
+      <div v-else class="empty">还没有账号，点「导入账号」选文件，或双击「双击粘贴剪贴板」导入</div>
     </div>
 
-    <div class="hint-row">右键行：复制 CK · 单独测试 · 移出列表 · 标记为坏号 | 拖入文本文件可批量导入，分隔符 ----</div>
+    <div class="hint-row">右键行：复制 CK · 单独测试 · 移出列表 · 标记为坏号 | 批量导入文本用 ---- 分隔多个账号</div>
 
     <div v-if="menu.show" class="context-menu" :style="{ left: menu.x + 'px', top: menu.y + 'px' }" @click.stop>
       <div class="menu-item" @click="menuAction('copy')">复制 CK</div>
@@ -194,7 +186,6 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   background: var(--surface);
-  --wails-drop-target: drop;
 }
 .page-header {
   height: 54px;
