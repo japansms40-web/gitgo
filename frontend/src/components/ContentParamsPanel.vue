@@ -2,75 +2,114 @@
 import { NumberStepper } from '@dongfang/df-ui-shell'
 
 defineProps({
-  count: { type: Number, required: true },
-  dedupeLines: { type: Boolean, required: true },
-  chineseOnly: { type: Boolean, required: true },
-  draftCount: { type: Number, required: true },
-  generating: { type: Boolean, required: true },
+  threads: { type: Number, required: true },
+  interval: { type: Number, required: true },
+  perAccount: { type: Number, required: true },
+  failSwitch: { type: Number, required: true },
+  accountCycles: { type: Number, required: true },
+  roundInterval: { type: Number, required: true },
+  keywordSlots: { type: Number, required: true },
+  newRepo: { type: Boolean, required: true },
+  working: { type: Boolean, required: true },
 })
 const emit = defineEmits([
-  'update:count',
-  'update:dedupeLines',
-  'update:chineseOnly',
-  'generate',
-  'export',
+  'update:threads',
+  'update:interval',
+  'update:perAccount',
+  'update:failSwitch',
+  'update:accountCycles',
+  'update:roundInterval',
+  'update:keywordSlots',
+  'update:newRepo',
+  'keyword-settings',
   'save-config',
-  'open-dir',
+  'clear-accounts',
+  'account-feature',
+  'view-links',
+  'start-work',
 ])
 </script>
 
 <template>
   <div class="panel">
-    <div class="content-box">
-      <div class="content-row">
-        <span>生成结果</span>
-        <span class="content-count mono">{{ draftCount }} 篇</span>
-      </div>
-      <button class="btn-outline btn-full" @click="emit('open-dir')">打开素材目录</button>
-    </div>
-
-    <div class="divider" />
-
-    <div class="panel-title">生成参数 GENERATE</div>
+    <div class="panel-title">任务参数 RUN PARAMS</div>
 
     <NumberStepper
-      label="生成篇数"
-      unit="篇"
+      label="线程数量"
+      unit="个"
       :min="1"
-      :model-value="count"
-      @update:model-value="emit('update:count', $event)"
+      :model-value="threads"
+      @update:model-value="emit('update:threads', $event)"
+    />
+    <NumberStepper
+      label="发布间隔"
+      unit="秒"
+      :min="0"
+      :model-value="interval"
+      @update:model-value="emit('update:interval', $event)"
+    />
+    <NumberStepper
+      label="每号发布"
+      unit="次"
+      :min="1"
+      :model-value="perAccount"
+      @update:model-value="emit('update:perAccount', $event)"
+    />
+    <NumberStepper
+      label="失败换号"
+      unit="次"
+      :min="1"
+      :model-value="failSwitch"
+      @update:model-value="emit('update:failSwitch', $event)"
+    />
+    <NumberStepper
+      label="账号循环"
+      unit="轮"
+      :min="1"
+      :model-value="accountCycles"
+      @update:model-value="emit('update:accountCycles', $event)"
+    />
+    <NumberStepper
+      label="每轮间隔"
+      unit="秒"
+      :min="0"
+      :model-value="roundInterval"
+      @update:model-value="emit('update:roundInterval', $event)"
+    />
+    <NumberStepper
+      label="关键词位"
+      unit="个"
+      :min="1"
+      :model-value="keywordSlots"
+      @update:model-value="emit('update:keywordSlots', $event)"
     />
 
     <label class="checkbox-row">
-      <input type="checkbox" class="sr-only" :checked="dedupeLines" @change="emit('update:dedupeLines', $event.target.checked)" />
-      <span class="checkbox-box" :class="{ checked: dedupeLines }">
-        <svg v-if="dedupeLines" width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+      <input type="checkbox" class="sr-only" :checked="newRepo" @change="emit('update:newRepo', $event.target.checked)" />
+      <span class="checkbox-box" :class="{ checked: newRepo }">
+        <svg v-if="newRepo" width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M3 8.2l3.3 3.3L13 4.5" />
         </svg>
       </span>
-      去除重复行
-    </label>
-
-    <label class="checkbox-row">
-      <input type="checkbox" class="sr-only" :checked="chineseOnly" @change="emit('update:chineseOnly', $event.target.checked)" />
-      <span class="checkbox-box" :class="{ checked: chineseOnly }">
-        <svg v-if="chineseOnly" width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M3 8.2l3.3 3.3L13 4.5" />
-        </svg>
-      </span>
-      仅保留中文行
+      创建仓库 New repo
     </label>
 
     <div class="divider" />
 
-    <button class="btn-outline btn-full" @click="emit('save-config')">保存配置</button>
+    <button class="btn-primary btn-full" @click="emit('keyword-settings')">关键词设置</button>
+
+    <div class="btn-grid">
+      <button class="btn-outline btn-full" @click="emit('save-config')">保存配置</button>
+      <button class="btn-outline btn-full" @click="emit('clear-accounts')">清空账号</button>
+      <button class="btn-outline btn-full" @click="emit('account-feature')">换号特征</button>
+      <button class="btn-outline btn-full" @click="emit('view-links')">查看链接</button>
+    </div>
 
     <div class="spacer" />
 
-    <button class="btn-primary btn-tall" :disabled="generating" @click="emit('generate')">
-      {{ generating ? '生成中…' : '生成' }}
+    <button class="btn-primary btn-tall" :disabled="working" @click="emit('start-work')">
+      {{ working ? '工作中…' : '开始工作' }}
     </button>
-    <button class="btn-outline btn-full" :disabled="draftCount === 0" @click="emit('export')">导出 .md</button>
   </div>
 </template>
 
@@ -91,25 +130,6 @@ const emit = defineEmits([
   letter-spacing: 0.1em;
   color: var(--muted);
   text-transform: uppercase;
-}
-.content-box {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 10px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--surface);
-}
-.content-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  font-size: 12.5px;
-}
-.content-count {
-  color: var(--accent);
-  font-weight: 600;
 }
 .checkbox-row {
   display: flex;
@@ -153,6 +173,12 @@ const emit = defineEmits([
 }
 .spacer {
   flex: 1;
+  min-height: 8px;
+}
+.btn-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
 }
 .btn-full {
   width: 100%;
@@ -172,6 +198,7 @@ const emit = defineEmits([
 .btn-primary {
   background: var(--accent);
   color: #fff;
+  border: none;
 }
 .btn-outline {
   border: 1px solid var(--border-strong);
@@ -182,6 +209,9 @@ const emit = defineEmits([
 .btn-outline:hover:not(:disabled) {
   border-color: var(--accent);
   color: var(--accent);
+}
+.btn-primary:hover:not(:disabled) {
+  opacity: 0.92;
 }
 button:disabled {
   opacity: 0.5;

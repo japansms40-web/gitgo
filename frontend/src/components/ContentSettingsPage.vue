@@ -5,10 +5,6 @@ import FileLibraryPanel from './FileLibraryPanel.vue'
 const props = defineProps({
   titleTemplate: { type: String, required: true },
   bodyTemplates: { type: Array, required: true }, // A / B 两套正文模板
-  keywordsText: { type: String, required: true },
-  imagesText: { type: String, required: true },
-  articleCount: { type: Number, required: true },
-  varTexts: { type: Array, required: true }, // 5 段纯文本，一行一条
   keywordOrder: { type: String, required: true },
   keywordTransform: { type: String, required: true },
   shuffleParagraphs: { type: Boolean, required: true },
@@ -17,9 +13,6 @@ const props = defineProps({
 const emit = defineEmits([
   'update:titleTemplate',
   'update:bodyTemplates',
-  'update:keywordsText',
-  'update:imagesText',
-  'update:varTexts',
   'open-dir',
   'update:keywordOrder',
   'update:keywordTransform',
@@ -30,42 +23,39 @@ const emit = defineEmits([
   'library-action',
 ])
 
-// 右侧标签面板，按列排布；title 作为悬停说明。
+// 右侧标签面板，按语义分三列排布；title 作为悬停说明。
 const TOKEN_COLUMNS = [
+  // 生成类
   [
     { t: '{关键词}', d: '关键词库里的当前一条' },
-    { t: '{图片}', d: '从图片库随机取一条，包成 Markdown 图片' },
-    { t: '{时间1}', d: '时间格式 HH:mm:ss（如 17:42:30）' },
     { t: '{AI扩写}', d: 'AI 扩写（占用）' },
-  ],
-  [
     { t: '{字符=5}', d: '5 位随机字母或数字' },
-    { t: '{文章名}', d: '同一篇里与 {文章} 取自同一份素材的文件名' },
-    { t: '{时间3}', d: '时间格式 HH时mm分（如 17时42分）' },
-    { t: '{文章}', d: '从文章库随机取一篇的正文' },
-  ],
-  [
     { t: '{数字=5}', d: '5 位随机数字' },
-    { t: '{变量1}', d: '从变量库 1 随机抽一行' },
-    { t: '{日期1}', d: '日期格式 YYYY-MM-DD（如 2026-08-25）' },
-    { t: '{变量3}', d: '从变量库 3 随机抽一行' },
-  ],
-  [
     { t: '{英文=5}', d: '5 位随机英文字母' },
-    { t: '{变量2}', d: '从变量库 2 随机抽一行' },
-    { t: '{日期2}', d: '日期格式 YYYY/MM/DD（如 2026/08/25）' },
-    { t: '{变量4}', d: '从变量库 4 随机抽一行' },
-  ],
-  [
     { t: '{大写=5}', d: '5 位随机大写字母' },
-    { t: '{变量5}', d: '从变量库 5 随机抽一行' },
-    { t: '{日期3}', d: '日期格式 YYYY年MM月DD日' },
     { t: '{小写=5}', d: '5 位随机小写字母' },
-  ],
-  [
     { t: '{中文=5}', d: '5 个随机常用汉字' },
+  ],
+  // 素材 / 变量类
+  [
+    { t: '{图片}', d: '从图片库随机取一条，包成 Markdown 图片' },
+    { t: '{文章}', d: '从文章库随机取一篇的正文' },
+    { t: '{文章名}', d: '同一篇里与 {文章} 取自同一份素材的文件名' },
+    { t: '{变量1}', d: '从变量库 1 随机抽一行' },
+    { t: '{变量2}', d: '从变量库 2 随机抽一行' },
+    { t: '{变量3}', d: '从变量库 3 随机抽一行' },
+    { t: '{变量4}', d: '从变量库 4 随机抽一行' },
+    { t: '{变量5}', d: '从变量库 5 随机抽一行' },
+  ],
+  // 时间 / 日期类
+  [
+    { t: '{时间1}', d: '时间格式 HH:mm:ss（如 17:42:30）' },
     { t: '{时间2}', d: '时间格式 HH:mm（如 17:42）' },
+    { t: '{时间3}', d: '时间格式 HH时mm分（如 17时42分）' },
     { t: '{时间4}', d: '时间格式 HHmmss（如 174230）' },
+    { t: '{日期1}', d: '日期格式 YYYY-MM-DD（如 2026-08-25）' },
+    { t: '{日期2}', d: '日期格式 YYYY/MM/DD（如 2026/08/25）' },
+    { t: '{日期3}', d: '日期格式 YYYY年MM月DD日' },
     { t: '{日期4}', d: '日期格式 YYYYMMDD（如 20260825）' },
   ],
 ]
@@ -73,7 +63,6 @@ const TOKEN_COLUMNS = [
 const activeTab = ref('template')
 const tabs = computed(() => [
   { key: 'template', label: '模板' },
-  { key: 'bank', label: '变量设置' },
   { key: 'library', label: '文件库' },
   { key: 'preview', label: `预览 ${props.drafts.length}` },
 ])
@@ -83,20 +72,10 @@ function toggle(index) {
   expanded.value = expanded.value === index ? -1 : index
 }
 
-function lineCount(text) {
-  return text.split('\n').filter((l) => l.trim() !== '').length
-}
-
 function updateBody(index, value) {
   const next = [...props.bodyTemplates]
   next[index] = value
   emit('update:bodyTemplates', next)
-}
-
-function updateVar(index, value) {
-  const next = [...props.varTexts]
-  next[index] = value
-  emit('update:varTexts', next)
 }
 
 function summary(bodyText) {
@@ -136,7 +115,6 @@ function summary(bodyText) {
             <option value="none">关键词不处理</option>
             <option value="space">关键词加空格</option>
           </select>
-          <button class="btn-primary" @click="activeTab = 'bank'">变量设置</button>
           <button class="btn-library" @click="activeTab = 'library'">文件库</button>
         </div>
 
@@ -205,76 +183,9 @@ function summary(bodyText) {
       </fieldset>
     </div>
 
-    <!-- 变量设置 -->
-    <div v-else-if="activeTab === 'bank'" class="page-body">
-      <fieldset class="box">
-        <legend>关键词库</legend>
-        <div class="field-head">
-          <span class="field-count mono">{{ lineCount(keywordsText) }} 条</span>
-          <div class="spacer" />
-          <button class="link-action" @click="emit('import-text', 'keywords')">从文件导入</button>
-        </div>
-        <textarea
-          class="input"
-          rows="5"
-          placeholder="一行一个关键词"
-          :value="keywordsText"
-          @input="emit('update:keywordsText', $event.target.value)"
-        />
-      </fieldset>
-
-      <fieldset class="box">
-        <legend>图片库</legend>
-        <div class="field-head">
-          <code class="mono field-token">{{ '{图片}' }}</code>
-          <span class="field-count mono">{{ lineCount(imagesText) }} 条</span>
-          <div class="spacer" />
-          <button class="link-action" @click="emit('import-text', 'images')">从文件导入</button>
-        </div>
-        <textarea
-          class="input"
-          rows="3"
-          placeholder="一行一条图片地址；写成 Markdown 或 HTML 也可以，会原样使用"
-          :value="imagesText"
-          @input="emit('update:imagesText', $event.target.value)"
-        />
-      </fieldset>
-
-      <fieldset class="box">
-        <legend>文章库</legend>
-        <div class="field-head">
-          <code class="mono field-token">{{ '{文章} {文章名}' }}</code>
-          <span class="field-count mono">{{ articleCount }} 篇</span>
-          <div class="spacer" />
-          <button class="link-action" @click="emit('open-dir')">打开目录</button>
-        </div>
-        <div class="hint">
-          把 .txt / .md 文件放进素材目录下的「文章库」文件夹即可。{{ '{文章}' }} 取正文，{{ '{文章名}' }} 取文件名，
-          同一篇草稿里这两个标签取自同一份素材。
-        </div>
-      </fieldset>
-
-      <fieldset v-for="(text, i) in varTexts" :key="i" class="box">
-        <legend>变量库 {{ i + 1 }}</legend>
-        <div class="field-head">
-          <code class="mono field-token">{{ '{变量' + (i + 1) + '}' }}</code>
-          <span class="field-count mono">{{ lineCount(text) }} 条</span>
-          <div class="spacer" />
-          <button class="link-action" @click="emit('import-text', 'var' + i)">从文件导入</button>
-        </div>
-        <textarea
-          class="input"
-          rows="4"
-          placeholder="一行一条候选内容，生成时随机抽一行"
-          :value="text"
-          @input="updateVar(i, $event.target.value)"
-        />
-      </fieldset>
-    </div>
-
     <!-- 文件库 -->
     <div v-else-if="activeTab === 'library'" class="page-body" style="padding: 0;">
-      <FileLibraryPanel :configPath="`docs/git/配置`" @file-selected="emit('library-action', $event)" />
+      <FileLibraryPanel @file-selected="emit('library-action', $event)" @open-dir="emit('open-dir')" />
     </div>
 
     <!-- 预览 -->
@@ -369,7 +280,7 @@ function summary(bodyText) {
   gap: 12px;
 }
 .col-side {
-  flex: 0 0 268px;
+  flex: 0 0 320px;
   align-self: flex-start;
 }
 
@@ -559,17 +470,21 @@ function summary(bodyText) {
   gap: 8px;
 }
 .token-chip {
-  height: 34px;
-  padding: 0 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 36px;
+  padding: 0 8px;
   border: 1px solid var(--border);
   border-radius: 8px;
   background: var(--surface-2);
   color: var(--text);
-  font-size: 12px;
+  font-size: 12.5px;
   cursor: pointer;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  transition: border-color 150ms ease, color 150ms ease, background 150ms ease;
 }
 .token-chip:hover {
   border-color: var(--accent);

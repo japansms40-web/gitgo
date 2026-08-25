@@ -1,27 +1,35 @@
 <script setup>
 import { ref, onMounted, computed } from 'vue'
+import { ListConfigTree, ReadConfigFile, WriteConfigFile } from '../../wailsjs/go/main/App'
 
-const props = defineProps({
-  configPath: {
-    type: String,
-    default: 'docs/git/配置',
-  },
-})
+const emit = defineEmits(['file-selected', 'open-dir'])
 
-const emit = defineEmits(['file-selected', 'action'])
-
-const files = ref([])
+const tree = ref([])
 const selectedFile = ref(null)
-const fileContent = ref('')
+const baseline = ref('') // 磁盘上的原始内容，用来判断是否改动过
+const editContent = ref('') // 文本框里正在编辑的内容
+const truncated = ref(false) // 文件过大被截断：此时禁止编辑，以免保存丢内容
 const loading = ref(false)
+const saving = ref(false)
+const errorMsg = ref('')
 const expandedDirs = ref(new Set())
 
-const sortedFiles = computed(() => {
-  if (!files.value) return []
-  return files.value.sort((a, b) => {
-    if (a.type !== b.type) return a.type === 'dir' ? -1 : 1
-    return a.name.localeCompare(b.name)
-  })
+const dirty = computed(() => selectedFile.value !== null && editContent.value !== baseline.value)
+const editable = computed(() => selectedFile.value !== null && !truncated.value)
+
+// 把目录树按当前展开状态拍平成一串可见行，避免写递归组件；每行带 depth 缩进。
+const visibleRows = computed(() => {
+  const rows = []
+  const walk = (nodes, depth) => {
+    for (const node of nodes) {
+      rows.push({ node, depth })
+      if (node.isDir && expandedDirs.value.has(node.path)) {
+        walk(node.children || [], depth + 1)
+      }
+    }
+  }
+  walk(tree.value, 0)
+  return rows
 })
 
 onMounted(() => {
@@ -30,13 +38,16 @@ onMounted(() => {
 
 async function loadFiles() {
   loading.value = true
+  errorMsg.value = ''
   try {
-    // 调用后端 API 或本地读取
-    // 此处为占位符，实际实现需要通过 Go 后端或其他方式
-    console.log('Loading files from:', props.configPath)
-    // TODO: 实现文件树加载逻辑
+    tree.value = (await ListConfigTree()) ?? []
+    // 默认展开顶层目录，一进来就能看到变量/文章下的文件。
+    for (const node of tree.value) {
+      if (node.isDir) expandedDirs.value.add(node.path)
+    }
   } catch (error) {
-    console.error('Failed to load files:', error)
+    errorMsg.value = String(error?.message ?? error)
+    tree.value = []
   } finally {
     loading.value = false
   }
@@ -50,16 +61,55 @@ function toggleDir(dirPath) {
   }
 }
 
-async function selectFile(file) {
-  if (file.type === 'file') {
-    selectedFile.value = file.path
-    // TODO: 通过 API 读取文件内容
-    fileContent.value = `Loading: ${file.name}`
-    emit('file-selected', file)
+async function onRowClick(node) {
+  if (node.isDir) {
+    toggleDir(node.path)
+    return
+  }
+  await selectFile(node)
+}
+
+async function selectFile(node) {
+  selectedFile.value = node.path
+  baseline.value = ''
+  editContent.value = '加载中…'
+  truncated.value = false
+  errorMsg.value = ''
+  try {
+    const preview = await ReadConfigFile(node.path)
+    baseline.value = preview.content ?? ''
+    editContent.value = baseline.value
+    truncated.value = !!preview.truncated
+    emit('file-selected', node)
+  } catch (error) {
+    editContent.value = ''
+    errorMsg.value = String(error?.message ?? error)
+  }
+}
+
+async function saveFile() {
+  if (!editable.value || !dirty.value || saving.value) return
+  saving.value = true
+  errorMsg.value = ''
+  try {
+    const err = await WriteConfigFile(selectedFile.value, editContent.value)
+    if (err) {
+      errorMsg.value = err
+      return
+    }
+    baseline.value = editContent.value // 落盘成功，更新基线
+  } catch (error) {
+    errorMsg.value = String(error?.message ?? error)
+  } finally {
+    saving.value = false
   }
 }
 
 function refresh() {
+  selectedFile.value = null
+  baseline.value = ''
+  editContent.value = ''
+  truncated.value = false
   loadFiles()
 }
 </script>
@@ -68,21 +118,57 @@ function refresh() {
   <div class="file-library">
     <div class="library-toolbar">
       <button class="btn-action" @click="refresh">🔄 刷新</button>
+      <button class="btn-action" @click="emit('open-dir')">📂 打开目录</button>
+      <span class="toolbar-path mono">素材目录 · 点文件可直接编辑</span>
     </div>
 
     <div class="library-body">
       <div class="file-tree">
         <div class="tree-header">配置目录</div>
-        <div v-if="loading" class="loading">加载中...</div>
-        <div v-else class="tree-empty">文件树显示待实现</div>
+        <div v-if="loading" class="tree-tip">加载中…</div>
+        <div v-else-if="errorMsg" class="tree-tip is-error">{{ errorMsg }}</div>
+        <div v-else-if="visibleRows.length === 0" class="tree-tip">目录为空</div>
+        <ul v-else class="tree-list">
+          <li
+            v-for="{ node, depth } in visibleRows"
+            :key="node.path"
+            class="tree-row"
+            :class="{ 'is-selected': !node.isDir && selectedFile === node.path }"
+            :style="{ paddingLeft: 8 + depth * 14 + 'px' }"
+            @click="onRowClick(node)"
+          >
+            <span class="tree-caret">{{ node.isDir ? (expandedDirs.has(node.path) ? '▾' : '▸') : '' }}</span>
+            <span class="tree-icon">{{ node.isDir ? '📁' : '📄' }}</span>
+            <span class="tree-name">{{ node.name }}</span>
+          </li>
+        </ul>
       </div>
 
       <div class="file-preview">
         <div class="preview-header">
-          <span v-if="selectedFile" class="file-path">{{ selectedFile }}</span>
+          <span v-if="selectedFile" class="file-path mono">{{ selectedFile }}</span>
           <span v-else class="placeholder">选择文件查看内容</span>
+          <span v-if="dirty" class="preview-dirty">● 未保存</span>
+          <span v-if="truncated" class="preview-truncated">文件过大，只读预览</span>
+          <div class="spacer" />
+          <button
+            v-if="selectedFile"
+            class="btn-save"
+            :disabled="!editable || !dirty || saving"
+            @click="saveFile"
+          >
+            {{ saving ? '保存中…' : '保存' }}
+          </button>
         </div>
-        <pre class="preview-content">{{ fileContent }}</pre>
+        <textarea
+          v-if="selectedFile"
+          class="preview-editor mono"
+          :class="{ 'is-readonly': !editable }"
+          :readonly="!editable"
+          spellcheck="false"
+          v-model="editContent"
+        />
+        <div v-else class="preview-empty">选择左侧文件查看并编辑内容</div>
       </div>
     </div>
   </div>
@@ -101,7 +187,12 @@ function refresh() {
   padding: 12px 16px;
   border-bottom: 1px solid var(--border);
   display: flex;
+  align-items: center;
   gap: 8px;
+}
+.toolbar-path {
+  font-size: 11.5px;
+  color: var(--muted);
 }
 
 .btn-action {
@@ -141,12 +232,55 @@ function refresh() {
   text-transform: uppercase;
 }
 
-.tree-empty,
-.loading {
+.tree-tip {
   padding: 12px;
   font-size: 12px;
   color: var(--muted);
   text-align: center;
+  word-break: break-all;
+}
+.tree-tip.is-error {
+  color: var(--err, #d9534f);
+}
+
+.tree-list {
+  margin: 0;
+  padding: 0 0 8px;
+  list-style: none;
+}
+.tree-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 26px;
+  padding-right: 8px;
+  font-size: 12.5px;
+  color: var(--text);
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+  overflow: hidden;
+}
+.tree-row:hover {
+  background: var(--surface);
+}
+.tree-row.is-selected {
+  background: var(--accent-weak);
+  color: var(--accent);
+}
+.tree-caret {
+  flex: 0 0 12px;
+  font-size: 10px;
+  color: var(--muted);
+  text-align: center;
+}
+.tree-icon {
+  flex: 0 0 auto;
+  font-size: 12px;
+}
+.tree-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .file-preview {
@@ -157,10 +291,37 @@ function refresh() {
 
 .preview-header {
   flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
   padding: 12px 16px;
   border-bottom: 1px solid var(--border);
   font-size: 12px;
   color: var(--text);
+}
+.preview-truncated {
+  font-size: 11px;
+  color: var(--warn, #9a6700);
+}
+.preview-dirty {
+  font-size: 11px;
+  color: var(--accent);
+}
+.preview-header .spacer {
+  flex: 1;
+}
+.btn-save {
+  padding: 5px 16px;
+  border: none;
+  border-radius: 4px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 12px;
+  cursor: pointer;
+}
+.btn-save:disabled {
+  opacity: 0.45;
+  cursor: default;
 }
 
 .placeholder {
@@ -172,16 +333,32 @@ function refresh() {
   color: var(--accent);
 }
 
-.preview-content {
+.preview-editor {
   flex: 1;
   margin: 0;
   padding: 16px;
+  border: none;
+  outline: none;
+  resize: none;
   overflow: auto;
   font-size: 12px;
   line-height: 1.6;
   background: var(--surface);
   color: var(--text);
-  white-space: pre-wrap;
-  word-break: break-word;
+  white-space: pre;
+  tab-size: 4;
+}
+.preview-editor.is-readonly {
+  background: var(--surface-2);
+  color: var(--muted);
+}
+
+.preview-empty {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  color: var(--muted);
 }
 </style>

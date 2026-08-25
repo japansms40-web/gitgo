@@ -5,11 +5,14 @@ import (
 	"fmt"
 	"math/rand"
 	"os"
+	"os/exec"
+	stdruntime "runtime"
 	"time"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 
 	"gitmd/internal/config"
+	"gitmd/internal/configdir"
 	"gitmd/internal/contentgen"
 	"gitmd/internal/contentstore"
 )
@@ -62,30 +65,46 @@ func (a *App) LoadContent() (contentgen.Library, error) {
 	return contentstore.Load(dir)
 }
 
-// SaveContent 把模板与词库写回 txt 文件；出错时返回错误文案。
-func (a *App) SaveContent(lib contentgen.Library) string {
+// SaveTemplates 只把标题模板与正文模板 A/B 写回素材目录；词库改由「文件库」直接改文件，
+// 所以这里不动它们，避免覆盖用户在文件库里的编辑。出错时返回错误文案。
+func (a *App) SaveTemplates(title string, bodies []string) string {
 	dir, err := contentstore.DefaultDir()
 	if err != nil {
 		return err.Error()
 	}
-	if err := contentstore.Save(dir, lib); err != nil {
+	if err := contentstore.SaveTemplates(dir, title, bodies); err != nil {
 		return err.Error()
 	}
 	return ""
 }
 
 // OpenContentDir 在系统文件管理器里打开素材目录，方便直接用文本编辑器改 txt。
+// 直接调系统的 open/explorer/xdg-open，比 file:// URL 更可靠（路径里有空格/中文也不怕）。
 func (a *App) OpenContentDir() string {
-	dir, err := contentstore.DefaultDir()
+	dir, err := a.contentDir() // contentDir 会 ensureLayout：目录不存在时先建出来
 	if err != nil {
 		return err.Error()
 	}
-	// 目录可能还没建出来，先确保存在再打开。
-	if _, err := contentstore.Load(dir); err != nil {
+	if err := openInFileManager(dir); err != nil {
 		return err.Error()
 	}
-	runtime.BrowserOpenURL(a.ctx, "file://"+dir)
+	a.emitInfo("已打开素材目录：" + dir)
 	return ""
+}
+
+// openInFileManager 用当前系统的文件管理器打开一个目录。
+func openInFileManager(path string) error {
+	var cmd *exec.Cmd
+	switch stdruntime.GOOS {
+	case "darwin":
+		cmd = exec.Command("open", path)
+	case "windows":
+		cmd = exec.Command("explorer", path)
+	default:
+		cmd = exec.Command("xdg-open", path)
+	}
+	// 只负责唤起，不等它退出（explorer 成功也会返回非 0）。
+	return cmd.Start()
 }
 
 // ImportTextFile 让用户选一个 txt 文件并返回其内容，用于往模板/词库输入框里灌数据。
@@ -103,6 +122,55 @@ func (a *App) ImportTextFile() (string, error) {
 		return "", err
 	}
 	return string(b), nil
+}
+
+// ---------- 素材目录（文件库浏览与编辑） ----------
+//
+// 「文件库」直接浏览、编辑生成用的素材目录（contentstore.DefaultDir，即
+// <用户配置>/gitmd/content）。目录不存在时先建出带示例的骨架再读，保证第一次
+// 打开就有东西可编辑。
+
+// contentDir 返回素材目录，并顺便建出缺失的骨架文件。
+func (a *App) contentDir() (string, error) {
+	dir, err := contentstore.DefaultDir()
+	if err != nil {
+		return "", err
+	}
+	// Load 会 ensureLayout：目录/文件不存在时先建出来。
+	if _, err := contentstore.Load(dir); err != nil {
+		return "", err
+	}
+	return dir, nil
+}
+
+// ListConfigTree 读取素材目录下的文件树，供「文件库」标签页展示。
+func (a *App) ListConfigTree() ([]configdir.Node, error) {
+	dir, err := a.contentDir()
+	if err != nil {
+		return nil, err
+	}
+	return configdir.Tree(dir)
+}
+
+// ReadConfigFile 读取素材目录下某个文件的内容用于预览；过大的文件会被截断。
+func (a *App) ReadConfigFile(relPath string) (configdir.FilePreview, error) {
+	dir, err := a.contentDir()
+	if err != nil {
+		return configdir.FilePreview{}, err
+	}
+	return configdir.ReadFile(dir, relPath)
+}
+
+// WriteConfigFile 把「文件库」里编辑后的内容写回素材目录对应的文件。
+func (a *App) WriteConfigFile(relPath, content string) string {
+	dir, err := a.contentDir()
+	if err != nil {
+		return err.Error()
+	}
+	if err := configdir.WriteFile(dir, relPath, content); err != nil {
+		return err.Error()
+	}
+	return ""
 }
 
 // ---------- 生成与导出 ----------

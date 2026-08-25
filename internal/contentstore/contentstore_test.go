@@ -142,6 +142,46 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 	}
 }
 
+// SaveTemplates 只写模板，必须保留用户在文件库里改过的关键词/图片/变量。
+func TestSaveTemplatesKeepsDataFiles(t *testing.T) {
+	dir := t.TempDir()
+	// 先落一份带词库的完整素材。
+	full := contentgen.Library{
+		TitleTemplate: "旧标题",
+		BodyTemplates: []string{"旧正文A", "旧正文B"},
+		Keywords:      []string{"关键词甲", "关键词乙"},
+		Images:        []string{"图一"},
+		Vars:          make([][]string, contentgen.VarBankCount),
+	}
+	full.Vars[0] = []string{"变量甲"}
+	if err := Save(dir, full); err != nil {
+		t.Fatalf("Save 返回错误: %v", err)
+	}
+
+	// 只改模板。
+	if err := SaveTemplates(dir, "新标题", []string{"新正文A", "新正文B"}); err != nil {
+		t.Fatalf("SaveTemplates 返回错误: %v", err)
+	}
+
+	got, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load 返回错误: %v", err)
+	}
+	if got.TitleTemplate != "新标题" || got.BodyTemplates[0] != "新正文A" {
+		t.Errorf("模板应被更新，得到 title=%q bodyA=%q", got.TitleTemplate, got.BodyTemplates[0])
+	}
+	// 关键有：词库、图片、变量不能被动。
+	if strings.Join(got.Keywords, ",") != "关键词甲,关键词乙" {
+		t.Errorf("SaveTemplates 不应动关键词，得到 %v", got.Keywords)
+	}
+	if strings.Join(got.Images, ",") != "图一" {
+		t.Errorf("SaveTemplates 不应动图片库，得到 %v", got.Images)
+	}
+	if strings.Join(got.Vars[0], ",") != "变量甲" {
+		t.Errorf("SaveTemplates 不应动变量库，得到 %v", got.Vars[0])
+	}
+}
+
 func TestLoadSkipsBlankLinesAndTrimsCRLF(t *testing.T) {
 	dir := t.TempDir()
 	if err := Save(dir, contentgen.Library{}); err != nil {

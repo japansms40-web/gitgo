@@ -22,6 +22,10 @@ export function ImportTextFile() {
   return window['go']['main']['App']['ImportTextFile']();
 }
 
+export function ListConfigTree() {
+  return window['go']['main']['App']['ListConfigTree']();
+}
+
 export function LoadConfig() {
   return window['go']['main']['App']['LoadConfig']();
 }
@@ -34,10 +38,18 @@ export function OpenContentDir() {
   return window['go']['main']['App']['OpenContentDir']();
 }
 
+export function ReadConfigFile(arg1) {
+  return window['go']['main']['App']['ReadConfigFile'](arg1);
+}
+
 export function SaveConfig(arg1) {
   return window['go']['main']['App']['SaveConfig'](arg1);
 }
 
-export function SaveContent(arg1) {
-  return window['go']['main']['App']['SaveContent'](arg1);
+export function SaveTemplates(arg1, arg2) {
+  return window['go']['main']['App']['SaveTemplates'](arg1, arg2);
+}
+
+export function WriteConfigFile(arg1, arg2) {
+  return window['go']['main']['App']['WriteConfigFile'](arg1, arg2);
 }

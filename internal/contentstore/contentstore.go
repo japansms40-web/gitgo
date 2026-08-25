@@ -135,6 +135,28 @@ func Save(dir string, lib contentgen.Library) error {
 	return nil
 }
 
+// SaveTemplates 只写标题模板与正文模板 A/B，不动关键词/图片/变量/文章等数据文件。
+// 界面上「变量设置」已并入「文件库」，词库改由用户在文件库里直接改文件，
+// 所以生成前落盘时只需要把模板存回去，避免把文件库里的编辑覆盖掉。
+func SaveTemplates(dir, title string, bodies []string) error {
+	if err := ensureLayout(dir); err != nil {
+		return err
+	}
+	if err := os.WriteFile(filepath.Join(dir, titleFile), []byte(title), 0o644); err != nil {
+		return err
+	}
+	for i := 0; i < contentgen.BodyTemplateCount; i++ {
+		var body string
+		if i < len(bodies) {
+			body = bodies[i]
+		}
+		if err := os.WriteFile(bodyPath(dir, i), []byte(body), 0o644); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // ExportDrafts 把草稿逐篇写成 <dir>/<标题>.md，返回成功写出的篇数。
 func ExportDrafts(dir string, drafts []contentgen.Draft) (int, error) {
 	if len(drafts) == 0 {

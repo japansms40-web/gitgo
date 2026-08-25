@@ -15,8 +15,7 @@ const APP_NAME = 'Git MD'
 const NAV_ITEMS = [{ key: 'content', cn: '内容设置', en: 'CONTENT', icon: ContentIcon }]
 const NAV_BOTTOM_ITEMS = [{ key: 'help', cn: '使用说明', en: 'HELP', icon: HelpIcon }]
 
-// 与 Go 侧 contentgen.VarBankCount / BodyTemplateCount 对应
-const VAR_BANK_COUNT = 5
+// 与 Go 侧 contentgen.BodyTemplateCount 对应
 const BODY_TEMPLATE_COUNT = 2
 
 const THEME_KEY = 'gitmd.theme'
@@ -43,17 +42,32 @@ const opts = reactive({
   chineseOnly: false,
 })
 
-// 素材在界面上一律按纯文本编辑，存盘时才切成一行一条
+// 右侧共享配置区（发布任务参数），所有 tab 共用；目前为界面状态，落盘到 localStorage
+const RUN_KEY = 'gitmd.runParams'
+const RUN_DEFAULTS = {
+  threads: 10,
+  interval: 2,
+  perAccount: 1000,
+  failSwitch: 100,
+  accountCycles: 1,
+  roundInterval: 1,
+  keywordSlots: 3,
+  newRepo: false,
+}
+const run = reactive({ ...RUN_DEFAULTS })
+try {
+  const saved = JSON.parse(localStorage.getItem(RUN_KEY) || 'null')
+  if (saved && typeof saved === 'object') Object.assign(run, saved)
+} catch {
+  /* 忽略损坏的本地配置 */
+}
+
+// 模板 tab 只编辑标题与正文模板；关键词/图片/变量/文章等词库改由「文件库」标签页
+// 直接改素材目录里的 txt，不再经过这里。
 const form = reactive({
   titleTemplate: '',
   bodyTemplates: Array(BODY_TEMPLATE_COUNT).fill(''),
-  keywordsText: '',
-  imagesText: '',
-  varTexts: Array(VAR_BANK_COUNT).fill(''),
 })
-
-// 文章库是用户往素材目录里丢文件，界面只读不改，所以单独存着回写用
-const articles = ref([])
 
 const drafts = ref([])
 const generating = ref(false)
@@ -79,24 +93,6 @@ const pill = computed(() => {
   return { text: `已生成 ${drafts.value.length} 篇`, kind: 'success' }
 })
 
-function splitLines(text) {
-  return text
-    .split('\n')
-    .map((line) => line.trim())
-    .filter((line) => line !== '')
-}
-
-function toLibrary() {
-  return {
-    titleTemplate: form.titleTemplate,
-    bodyTemplates: [...form.bodyTemplates],
-    keywords: splitLines(form.keywordsText),
-    vars: form.varTexts.map(splitLines),
-    images: splitLines(form.imagesText),
-    articles: articles.value,
-  }
-}
-
 onMounted(async () => {
   EventsOn('gen:log', (line) => {
     logs.value.push(line)
@@ -108,18 +104,14 @@ onMounted(async () => {
     const lib = await App.LoadContent()
     form.titleTemplate = lib.titleTemplate ?? ''
     form.bodyTemplates = Array.from({ length: BODY_TEMPLATE_COUNT }, (_, i) => lib.bodyTemplates?.[i] ?? '')
-    form.keywordsText = (lib.keywords ?? []).join('\n')
-    form.imagesText = (lib.images ?? []).join('\n')
-    form.varTexts = Array.from({ length: VAR_BANK_COUNT }, (_, i) => (lib.vars?.[i] ?? []).join('\n'))
-    articles.value = lib.articles ?? []
   } catch (e) {
     showBanner(String(e))
   }
 })
 
-// saveContent 在生成/打开目录前先落盘，保证界面上看到的和 txt 里存的是同一份。
-async function saveContent() {
-  const err = await App.SaveContent(toLibrary())
+// saveTemplates 在生成/打开目录前把模板落盘；词库不经这里，由「文件库」直接改文件。
+async function saveTemplates() {
+  const err = await App.SaveTemplates(form.titleTemplate, [...form.bodyTemplates])
   if (err) {
     showBanner(err)
     return false
@@ -131,10 +123,8 @@ async function onGenerate() {
   if (generating.value) return
   generating.value = true
   try {
-    if (!(await saveContent())) return
+    if (!(await saveTemplates())) return
     drafts.value = (await App.Generate({ ...opts })) ?? []
-    // 用户可能刚往「文章库」目录丢了文件，顺手刷新一下计数
-    articles.value = (await App.LoadContent()).articles ?? []
   } catch (e) {
     showBanner(String(e))
   } finally {
@@ -149,7 +139,7 @@ async function onExport() {
 }
 
 async function onOpenDir() {
-  if (!(await saveContent())) return
+  if (!(await saveTemplates())) return
   const err = await App.OpenContentDir()
   if (err) showBanner(err)
 }
@@ -158,17 +148,10 @@ async function onImportText(target) {
   try {
     const text = await App.ImportTextFile()
     if (!text) return
-    if (target === 'title') form.titleTemplate = text
-    else if (target === 'keywords') form.keywordsText = text
-    else if (target === 'images') form.imagesText = text
-    else if (target.startsWith('body')) {
+    if (target.startsWith('body')) {
       const next = [...form.bodyTemplates]
       next[Number(target.slice(4))] = text
       form.bodyTemplates = next
-    } else if (target.startsWith('var')) {
-      const next = [...form.varTexts]
-      next[Number(target.slice(3))] = text
-      form.varTexts = next
     }
   } catch (e) {
     showBanner(String(e))
@@ -190,7 +173,28 @@ async function onSaveConfig() {
     showBanner(err)
     return
   }
+  localStorage.setItem(RUN_KEY, JSON.stringify({ ...run }))
   pushLog('info', '[信息]', '配置已保存')
+}
+
+// 开始工作：先落盘内容，再触发生成/发布流程
+function onStartWork() {
+  onGenerate()
+}
+
+// 以下按钮对应参考 UI，功能尚未接入后端，先给出提示占位
+function onKeywordSettings() {
+  page.value = 'content'
+  pushLog('info', '[信息]', '请在左侧「变量设置」中配置关键词库')
+}
+function onClearAccounts() {
+  pushLog('info', '[信息]', '清空账号（功能待接入）')
+}
+function onAccountFeature() {
+  pushLog('info', '[信息]', '换号特征（功能待接入）')
+}
+function onViewLinks() {
+  pushLog('info', '[信息]', '查看链接（功能待接入）')
 }
 
 function logText() {
@@ -233,13 +237,9 @@ function onClearLog() {
         v-else
         v-model:title-template="form.titleTemplate"
         v-model:body-templates="form.bodyTemplates"
-        v-model:keywords-text="form.keywordsText"
-        v-model:images-text="form.imagesText"
-        v-model:var-texts="form.varTexts"
         v-model:keyword-order="opts.keywordOrder"
         v-model:keyword-transform="opts.keywordTransform"
         v-model:shuffle-paragraphs="opts.shuffleParagraphs"
-        :article-count="articles.length"
         :drafts="drafts"
         @import-text="onImportText"
         @copy-draft="onCopyDraft"
@@ -248,15 +248,21 @@ function onClearLog() {
       />
 
       <ContentParamsPanel
-        v-model:count="opts.count"
-        v-model:dedupe-lines="opts.dedupeLines"
-        v-model:chinese-only="opts.chineseOnly"
-        :draft-count="drafts.length"
-        :generating="generating"
-        @generate="onGenerate"
-        @export="onExport"
+        v-model:threads="run.threads"
+        v-model:interval="run.interval"
+        v-model:per-account="run.perAccount"
+        v-model:fail-switch="run.failSwitch"
+        v-model:account-cycles="run.accountCycles"
+        v-model:round-interval="run.roundInterval"
+        v-model:keyword-slots="run.keywordSlots"
+        v-model:new-repo="run.newRepo"
+        :working="generating"
+        @keyword-settings="onKeywordSettings"
         @save-config="onSaveConfig"
-        @open-dir="onOpenDir"
+        @clear-accounts="onClearAccounts"
+        @account-feature="onAccountFeature"
+        @view-links="onViewLinks"
+        @start-work="onStartWork"
       />
     </div>
 
