@@ -1,5 +1,6 @@
 <script setup>
 import { computed, ref } from 'vue'
+import FileLibraryPanel from './FileLibraryPanel.vue'
 
 const props = defineProps({
   titleTemplate: { type: String, required: true },
@@ -26,6 +27,7 @@ const emit = defineEmits([
   'import-text',
   'copy-draft',
   'copy-token',
+  'library-action',
 ])
 
 // 右侧标签面板，按列排布；title 作为悬停说明。
@@ -271,8 +273,8 @@ function summary(bodyText) {
     </div>
 
     <!-- 文件库 -->
-    <div v-else-if="activeTab === 'library'" class="page-body">
-      <div class="empty">文件库功能即将上线 · FileLibraryPanel 组件待集成</div>
+    <div v-else-if="activeTab === 'library'" class="page-body" style="padding: 0;">
+      <FileLibraryPanel :configPath="`docs/git/配置`" @file-selected="emit('library-action', $event)" />
     </div>
 
     <!-- 预览 -->
