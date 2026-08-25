@@ -1,5 +1,5 @@
 <script setup>
-import NumberStepper from './NumberStepper.vue'
+import { NumberStepper } from '@dongfang/df-ui-shell'
 
 const props = defineProps({
   threads: { type: Number, required: true },
