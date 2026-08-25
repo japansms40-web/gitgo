@@ -1,18 +1,34 @@
 <script setup>
 import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
-import TitleBar from './components/TitleBar.vue'
-import NavRail from './components/NavRail.vue'
+import { TitleBar, NavRail, StatusBar, LogPanel, ResultsModal } from '@dongfang/df-ui-shell'
 import PublishPage from './components/PublishPage.vue'
 import HelpPage from './components/HelpPage.vue'
 import PlaceholderPage from './components/PlaceholderPage.vue'
 import RunParamsPanel from './components/RunParamsPanel.vue'
-import LogPanel from './components/LogPanel.vue'
-import StatusBar from './components/StatusBar.vue'
-import ResultsModal from './components/ResultsModal.vue'
+import PublishIcon from './icons/PublishIcon.vue'
+import ContentIcon from './icons/ContentIcon.vue'
+import ProxyIcon from './icons/ProxyIcon.vue'
+import CaptchaIcon from './icons/CaptchaIcon.vue'
+import SpiderIcon from './icons/SpiderIcon.vue'
+import LinksIcon from './icons/LinksIcon.vue'
+import CollectIcon from './icons/CollectIcon.vue'
+import HelpIcon from './icons/HelpIcon.vue'
 import * as App from '../wailsjs/go/main/App'
-import { EventsOn } from '../wailsjs/runtime/runtime'
+import { EventsOn, WindowMinimise, WindowToggleMaximise, Quit } from '../wailsjs/runtime/runtime'
 
 const APP_VERSION = 'v1.0.0'
+const APP_NAME = 'GitHub 文章发布器'
+
+const NAV_ITEMS = [
+  { key: 'publish', cn: '发布', en: 'PUBLISH', icon: PublishIcon },
+  { key: 'content', cn: '内容设置', en: 'CONTENT', icon: ContentIcon },
+  { key: 'proxy', cn: 'IP 设置', en: 'PROXY', icon: ProxyIcon },
+  { key: 'captcha', cn: '打码设置', en: 'CAPTCHA', icon: CaptchaIcon },
+  { key: 'spider', cn: '蜘蛛设置', en: 'SPIDER', icon: SpiderIcon },
+  { key: 'links', cn: '其他设置', en: 'URL / LINKS', icon: LinksIcon },
+  { key: 'collect', cn: '采集文章', en: 'COLLECT', icon: CollectIcon },
+]
+const NAV_BOTTOM_ITEMS = [{ key: 'help', cn: '使用说明', en: 'HELP', icon: HelpIcon }]
 
 const THEME_KEY = 'ghpublisher.theme'
 const theme = ref(localStorage.getItem(THEME_KEY) || 'light')
@@ -286,12 +302,23 @@ function onClearLog() {
 
 <template>
   <div class="shell">
-    <TitleBar :theme="theme" :version="APP_VERSION" :pill-text="pill.text" :pill-kind="pill.kind" @toggle-theme="toggleTheme" />
+    <TitleBar
+      :theme="theme"
+      :version="APP_VERSION"
+      :pill-text="pill.text"
+      :pill-kind="pill.kind"
+      :app-name="APP_NAME"
+      logo-text="G"
+      @toggle-theme="toggleTheme"
+      @minimize="WindowMinimise"
+      @maximize="WindowToggleMaximise"
+      @close="Quit"
+    />
 
     <div v-if="banner" class="banner">{{ banner }}</div>
 
     <div class="body">
-      <NavRail :page="page" @navigate="(p) => (page = p)" />
+      <NavRail :page="page" :items="NAV_ITEMS" :bottom-items="NAV_BOTTOM_ITEMS" @navigate="(p) => (page = p)" />
 
       <PublishPage
         v-if="page === 'publish'"
