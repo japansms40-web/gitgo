@@ -1,6 +1,9 @@
 package config
 
-import "testing"
+import (
+	"path/filepath"
+	"testing"
+)
 
 func TestValidate(t *testing.T) {
 	cases := []struct {
@@ -31,5 +34,27 @@ func TestNormalizeDefaults(t *testing.T) {
 	}
 	if cfg.IntervalSec < 0 || cfg.Retries < 0 {
 		t.Errorf("间隔/重试不应为负")
+	}
+}
+
+func TestSaveLoadRoundTrip(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "nested", "config.json")
+	cfg := Config{
+		Token: "t", Owner: "o", Repo: "r", Branch: "dev", Dir: "articles",
+		AutoCreate: true, IntervalSec: 3, Retries: 5,
+	}
+	if err := cfg.Save(path); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+	if got := Load(path); got != cfg {
+		t.Errorf("Load() = %+v, want %+v", got, cfg)
+	}
+}
+
+func TestLoadMissingFileReturnsDefaults(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	want := Config{Branch: "main", Dir: "posts", IntervalSec: 1, Retries: 2}
+	if got := Load(path); got != want {
+		t.Errorf("Load() = %+v, want %+v", got, want)
 	}
 }

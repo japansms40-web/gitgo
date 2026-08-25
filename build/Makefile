@@ -1,17 +1,12 @@
-APP := ghpublisher
-LDFLAGS := -s -w
-TAGS := migrated_fynedo
-
 .PHONY: mac windows clean
 
-# macOS 本机构建单文件
+# macOS 本机构建（wails build 会先编译前端再打包成 .app）
 mac:
-	CGO_ENABLED=1 go build -tags "$(TAGS)" -ldflags="$(LDFLAGS)" -o dist/$(APP) .
+	wails build -platform darwin/arm64
 
-# Windows 交叉编译（需 x86_64-w64-mingw32-gcc，本机已装）
+# Windows 交叉编译
 windows:
-	CGO_ENABLED=1 GOOS=windows GOARCH=amd64 CC=x86_64-w64-mingw32-gcc \
-		go build -tags "$(TAGS)" -ldflags="-H windowsgui $(LDFLAGS)" -o dist/$(APP).exe .
+	wails build -platform windows/amd64
 
 clean:
-	rm -rf dist
+	rm -rf build/bin

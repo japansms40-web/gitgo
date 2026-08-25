@@ -1,3 +1,7 @@
-/dist/
 /.idea/
 /.claude/worktrees/
+/.superpowers/
+/build/bin/
+/frontend/node_modules/
+/frontend/dist/
+.DS_Store

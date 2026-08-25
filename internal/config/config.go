@@ -1,21 +1,23 @@
 package config
 
 import (
+	"encoding/json"
 	"errors"
-
-	"fyne.io/fyne/v2"
+	"os"
+	"path/filepath"
 )
 
 // Config 保存一次发布所需的全部设置。不依赖任何 UI 类型。
+// json tag 同时决定磁盘持久化格式与前端绑定收到的字段名。
 type Config struct {
-	Token       string
-	Owner       string
-	Repo        string
-	Branch      string
-	Dir         string // 仓库内目标目录，如 "posts"
-	AutoCreate  bool   // 仓库不存在时自动创建
-	IntervalSec int    // 每篇之间的等待秒数
-	Retries     int    // 单篇失败重试次数
+	Token       string `json:"token"`
+	Owner       string `json:"owner"`
+	Repo        string `json:"repo"`
+	Branch      string `json:"branch"`
+	Dir         string `json:"dir"`         // 仓库内目标目录，如 "posts"
+	AutoCreate  bool   `json:"autoCreate"`  // 仓库不存在时自动创建
+	IntervalSec int    `json:"intervalSec"` // 每篇之间的等待秒数
+	Retries     int    `json:"retries"`     // 单篇失败重试次数
 }
 
 // Validate 检查必填项。
@@ -48,40 +50,36 @@ func (c *Config) Normalize() {
 	}
 }
 
-const (
-	keyToken    = "token"
-	keyOwner    = "owner"
-	keyRepo     = "repo"
-	keyBranch   = "branch"
-	keyDir      = "dir"
-	keyAuto     = "autoCreate"
-	keyInterval = "intervalSec"
-	keyRetries  = "retries"
-)
-
-// Load 从 Fyne Preferences 读取（Token 也持久化，方便重复使用）。
-func Load(p fyne.Preferences) Config {
-	c := Config{
-		Token:       p.String(keyToken),
-		Owner:       p.String(keyOwner),
-		Repo:        p.String(keyRepo),
-		Branch:      p.StringWithFallback(keyBranch, "main"),
-		Dir:         p.StringWithFallback(keyDir, "posts"),
-		AutoCreate:  p.Bool(keyAuto),
-		IntervalSec: p.IntWithFallback(keyInterval, 1),
-		Retries:     p.IntWithFallback(keyRetries, 2),
+// DefaultPath 返回配置文件在当前系统上的默认存放路径
+// （macOS: ~/Library/Application Support/ghpublisher/config.json，
+// Windows: %AppData%/ghpublisher/config.json）。
+func DefaultPath() (string, error) {
+	dir, err := os.UserConfigDir()
+	if err != nil {
+		return "", err
 	}
+	return filepath.Join(dir, "ghpublisher", "config.json"), nil
+}
+
+// Load 从 path 指向的 JSON 文件读取配置；文件不存在时返回带默认值的空配置。
+func Load(path string) Config {
+	c := Config{Branch: "main", Dir: "posts", IntervalSec: 1, Retries: 2}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return c
+	}
+	_ = json.Unmarshal(b, &c)
 	return c
 }
 
-// Save 写回 Fyne Preferences。
-func (c Config) Save(p fyne.Preferences) {
-	p.SetString(keyToken, c.Token)
-	p.SetString(keyOwner, c.Owner)
-	p.SetString(keyRepo, c.Repo)
-	p.SetString(keyBranch, c.Branch)
-	p.SetString(keyDir, c.Dir)
-	p.SetBool(keyAuto, c.AutoCreate)
-	p.SetInt(keyInterval, c.IntervalSec)
-	p.SetInt(keyRetries, c.Retries)
+// Save 把配置写入 path 指向的 JSON 文件，按需创建父目录。
+func (c Config) Save(path string) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
+	b, err := json.MarshalIndent(c, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, b, 0o600)
 }
