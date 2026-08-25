@@ -72,6 +72,7 @@ const activeTab = ref('template')
 const tabs = computed(() => [
   { key: 'template', label: '模板' },
   { key: 'bank', label: '变量设置' },
+  { key: 'library', label: '文件库' },
   { key: 'preview', label: `预览 ${props.drafts.length}` },
 ])
 
