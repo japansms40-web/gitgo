@@ -135,6 +135,7 @@ function summary(bodyText) {
             <option value="space">关键词加空格</option>
           </select>
           <button class="btn-primary" @click="activeTab = 'bank'">变量设置</button>
+          <button class="btn-library" @click="activeTab = 'library'">文件库</button>
         </div>
 
         <fieldset class="box">
@@ -267,6 +268,11 @@ function summary(bodyText) {
           @input="updateVar(i, $event.target.value)"
         />
       </fieldset>
+    </div>
+
+    <!-- 文件库 -->
+    <div v-else-if="activeTab === 'library'" class="page-body">
+      <div class="empty">文件库功能即将上线 · FileLibraryPanel 组件待集成</div>
     </div>
 
     <!-- 预览 -->
@@ -426,6 +432,22 @@ function summary(bodyText) {
   font-weight: 600;
   cursor: pointer;
   white-space: nowrap;
+}
+.btn-library {
+  height: 32px;
+  padding: 0 14px;
+  border-radius: 5px;
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.btn-library:hover {
+  border-color: var(--accent);
+  color: var(--accent);
 }
 
 .option-row {
