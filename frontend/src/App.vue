@@ -1,36 +1,25 @@
 <script setup>
-import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
-import { TitleBar, NavRail, StatusBar, LogPanel, ResultsModal } from '@dongfang/df-ui-shell'
-import PublishPage from './components/PublishPage.vue'
+import { computed, onMounted, reactive, ref } from 'vue'
+import { TitleBar, NavRail, LogPanel } from '@dongfang/df-ui-shell'
+import ContentSettingsPage from './components/ContentSettingsPage.vue'
+import ContentParamsPanel from './components/ContentParamsPanel.vue'
 import HelpPage from './components/HelpPage.vue'
-import PlaceholderPage from './components/PlaceholderPage.vue'
-import RunParamsPanel from './components/RunParamsPanel.vue'
-import PublishIcon from './icons/PublishIcon.vue'
 import ContentIcon from './icons/ContentIcon.vue'
-import ProxyIcon from './icons/ProxyIcon.vue'
-import CaptchaIcon from './icons/CaptchaIcon.vue'
-import SpiderIcon from './icons/SpiderIcon.vue'
-import LinksIcon from './icons/LinksIcon.vue'
-import CollectIcon from './icons/CollectIcon.vue'
 import HelpIcon from './icons/HelpIcon.vue'
 import * as App from '../wailsjs/go/main/App'
 import { EventsOn, WindowMinimise, WindowToggleMaximise, Quit } from '../wailsjs/runtime/runtime'
 
 const APP_VERSION = 'v1.0.0'
-const APP_NAME = 'GitHub 文章发布器'
+const APP_NAME = 'Git MD'
 
-const NAV_ITEMS = [
-  { key: 'publish', cn: '发布', en: 'PUBLISH', icon: PublishIcon },
-  { key: 'content', cn: '内容设置', en: 'CONTENT', icon: ContentIcon },
-  { key: 'proxy', cn: 'IP 设置', en: 'PROXY', icon: ProxyIcon },
-  { key: 'captcha', cn: '打码设置', en: 'CAPTCHA', icon: CaptchaIcon },
-  { key: 'spider', cn: '蜘蛛设置', en: 'SPIDER', icon: SpiderIcon },
-  { key: 'links', cn: '其他设置', en: 'URL / LINKS', icon: LinksIcon },
-  { key: 'collect', cn: '采集文章', en: 'COLLECT', icon: CollectIcon },
-]
+const NAV_ITEMS = [{ key: 'content', cn: '内容设置', en: 'CONTENT', icon: ContentIcon }]
 const NAV_BOTTOM_ITEMS = [{ key: 'help', cn: '使用说明', en: 'HELP', icon: HelpIcon }]
 
-const THEME_KEY = 'ghpublisher.theme'
+// 与 Go 侧 contentgen.VarBankCount / BodyTemplateCount 对应
+const VAR_BANK_COUNT = 5
+const BODY_TEMPLATE_COUNT = 2
+
+const THEME_KEY = 'gitmd.theme'
 const theme = ref(localStorage.getItem(THEME_KEY) || 'light')
 function applyTheme() {
   document.documentElement.dataset.theme = theme.value
@@ -42,51 +31,35 @@ function toggleTheme() {
 }
 applyTheme()
 
-const page = ref('publish')
-const PLACEHOLDER_PAGES = {
-  content: { title: '内容设置', subtitle: 'CONTENT' },
-  proxy: { title: 'IP 设置', subtitle: 'PROXY' },
-  captcha: { title: '打码设置', subtitle: 'CAPTCHA' },
-  spider: { title: '蜘蛛设置', subtitle: 'SPIDER' },
-  links: { title: '其他设置', subtitle: 'URL / LINKS' },
-  collect: { title: '采集文章', subtitle: 'COLLECT' },
-}
+const page = ref('content')
 
-const cfg = reactive({
-  threads: 1,
-  intervalSec: 1,
-  perAccountCount: 1,
-  failSwitchCount: 3,
-  cycleRounds: 1,
-  roundIntervalSec: 1,
-  keywordSlots: 0,
-  createRepo: false,
+// 生成参数，与 Go 侧 contentgen.Options 一一对应
+const opts = reactive({
+  count: 5,
+  keywordOrder: 'sequential',
+  keywordTransform: 'none',
+  shuffleParagraphs: false,
+  dedupeLines: false,
+  chineseOnly: false,
 })
-const accounts = ref([]) // {ck, ua, ip, status, success, fail, total, bad}
-const contentCount = ref(0)
-const running = ref(false)
-const paused = ref(false)
-const round = ref(0)
-const roundDone = ref(0)
-const roundTotal = ref(0)
+
+// 素材在界面上一律按纯文本编辑，存盘时才切成一行一条
+const form = reactive({
+  titleTemplate: '',
+  bodyTemplates: Array(BODY_TEMPLATE_COUNT).fill(''),
+  keywordsText: '',
+  imagesText: '',
+  varTexts: Array(VAR_BANK_COUNT).fill(''),
+})
+
+// 文章库是用户往素材目录里丢文件，界面只读不改，所以单独存着回写用
+const articles = ref([])
+
+const drafts = ref([])
+const generating = ref(false)
 const logs = ref([])
 const autoScroll = ref(true)
-const elapsed = ref('00:00')
 const banner = ref('')
-const showResults = ref(false)
-const results = ref([])
-
-let startedAt = 0
-let timer = null
-
-function formatElapsed(ms) {
-  const total = Math.round(ms / 1000)
-  const h = Math.floor(total / 3600)
-  const m = Math.floor((total % 3600) / 60)
-  const s = total % 60
-  const pad = (n) => String(n).padStart(2, '0')
-  return h > 0 ? `${pad(h)}:${pad(m)}:${pad(s)}` : `${pad(m)}:${pad(s)}`
-}
 
 function showBanner(msg) {
   banner.value = msg
@@ -95,189 +68,124 @@ function showBanner(msg) {
   }, 4000)
 }
 
-function pushLog(kind, tag, msg, highlight = false) {
-  logs.value.push({ time: new Date().toTimeString().slice(0, 8), tag, kind, msg, highlight })
+function pushLog(kind, tag, msg) {
+  logs.value.push({ time: new Date().toTimeString().slice(0, 8), tag, kind, msg, highlight: false })
   if (logs.value.length > 1000) logs.value.shift()
 }
 
-const successCount = computed(() => accounts.value.filter((a) => a.status === '成功').length)
-const failedCount = computed(() => accounts.value.filter((a) => a.status === '失败').length)
-const pendingCount = computed(() => accounts.value.length - successCount.value - failedCount.value)
-
 const pill = computed(() => {
-  const total = accounts.value.length
-  const done = successCount.value + failedCount.value
-  if (running.value) return { text: `发布中 · ${done}/${total}`, kind: 'running' }
-  if (total === 0 || done === 0) return { text: '待机', kind: 'muted' }
-  if (failedCount.value > 0) return { text: `已完成 · ${successCount.value} 成功 · ${failedCount.value} 失败`, kind: 'error' }
-  return { text: `已完成 · ${done}/${total}`, kind: 'success' }
+  if (generating.value) return { text: '生成中…', kind: 'running' }
+  if (drafts.value.length === 0) return { text: '待机', kind: 'muted' }
+  return { text: `已生成 ${drafts.value.length} 篇`, kind: 'success' }
 })
 
-onMounted(async () => {
-  const loaded = await App.LoadConfig()
-  Object.assign(cfg, loaded)
-  accounts.value = (await App.LoadAccounts()) ?? []
+function splitLines(text) {
+  return text
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line !== '')
+}
 
-  EventsOn('publish:log', (line) => {
+function toLibrary() {
+  return {
+    titleTemplate: form.titleTemplate,
+    bodyTemplates: [...form.bodyTemplates],
+    keywords: splitLines(form.keywordsText),
+    vars: form.varTexts.map(splitLines),
+    images: splitLines(form.imagesText),
+    articles: articles.value,
+  }
+}
+
+onMounted(async () => {
+  EventsOn('gen:log', (line) => {
     logs.value.push(line)
     if (logs.value.length > 1000) logs.value.shift()
   })
-  EventsOn('publish:account', (u) => {
-    const item = accounts.value[u.index]
-    if (!item) return
-    item.status = u.status
-    item.success = u.success
-    item.fail = u.fail
-    item.total = u.total
-  })
-  EventsOn('publish:round', (u) => {
-    round.value = u.round
-    roundDone.value = u.done
-    roundTotal.value = u.total
-  })
-  EventsOn('publish:done', (errMsg) => {
-    running.value = false
-    paused.value = false
-    if (timer) {
-      clearInterval(timer)
-      timer = null
-    }
-    elapsed.value = formatElapsed(Date.now() - startedAt)
-    if (errMsg) showBanner(errMsg)
-  })
-})
-onUnmounted(() => {
-  if (timer) clearInterval(timer)
+
+  Object.assign(opts, await App.LoadConfig())
+  try {
+    const lib = await App.LoadContent()
+    form.titleTemplate = lib.titleTemplate ?? ''
+    form.bodyTemplates = Array.from({ length: BODY_TEMPLATE_COUNT }, (_, i) => lib.bodyTemplates?.[i] ?? '')
+    form.keywordsText = (lib.keywords ?? []).join('\n')
+    form.imagesText = (lib.images ?? []).join('\n')
+    form.varTexts = Array.from({ length: VAR_BANK_COUNT }, (_, i) => (lib.vars?.[i] ?? []).join('\n'))
+    articles.value = lib.articles ?? []
+  } catch (e) {
+    showBanner(String(e))
+  }
 })
 
-// ---- 发布内容（本地 Markdown/文本） ----
-async function rescanContent(paths) {
-  if (!paths || paths.length === 0) return
-  try {
-    const items = await App.ScanQueue(paths)
-    contentCount.value = items.length
-  } catch (e) {
-    showBanner(String(e))
-  }
-}
-async function onSelectContentFolder() {
-  const dirPath = await App.SelectFolder()
-  if (dirPath) await rescanContent([dirPath])
-}
-async function onSelectContentFiles() {
-  const files = await App.SelectFiles()
-  if (files && files.length) await rescanContent(files)
-}
-async function onClearContent() {
-  await App.ClearQueue()
-  contentCount.value = 0
-}
-
-// ---- 账号队列 ----
-async function onImportAccountClick() {
-  try {
-    const paths = await App.SelectAccountFiles()
-    if (paths && paths.length) accounts.value = (await App.ImportAccountsFile(paths)) ?? []
-  } catch (e) {
-    showBanner(String(e))
-  }
-}
-async function onPasteClipboard() {
-  try {
-    accounts.value = (await App.PasteAccountsFromClipboard()) ?? []
-  } catch (e) {
-    showBanner(String(e))
-  }
-}
-async function onRemoveAccount(index) {
-  try {
-    accounts.value = (await App.RemoveAccount(index)) ?? []
-  } catch (e) {
-    showBanner(String(e))
-  }
-}
-async function onMarkBad(index) {
-  try {
-    accounts.value = (await App.MarkBadAccount(index)) ?? []
-  } catch (e) {
-    showBanner(String(e))
-  }
-}
-async function onClearAccounts() {
-  accounts.value = (await App.ClearAccounts()) ?? []
-}
-async function onExportResult() {
-  const err = await App.ExportAccountsResult()
-  if (err) showBanner(err)
-}
-async function onTestAccount(index) {
-  try {
-    const updated = await App.TestAccount(index)
-    accounts.value[index] = updated
-  } catch (e) {
-    showBanner(String(e))
-  }
-}
-async function onCopyCK(ck) {
-  if (!ck) return
-  await App.CopyToClipboard(ck)
-}
-
-async function onStart() {
-  if (contentCount.value === 0) {
-    showBanner('请先选择要发布的内容')
-    return
-  }
-  if (accounts.value.filter((a) => !a.bad).length === 0) {
-    showBanner('账号队列为空（或都已标记为坏号），请先导入账号')
-    return
-  }
-  const err = await App.StartPublish({ ...cfg })
+// saveContent 在生成/打开目录前先落盘，保证界面上看到的和 txt 里存的是同一份。
+async function saveContent() {
+  const err = await App.SaveContent(toLibrary())
   if (err) {
     showBanner(err)
-    return
+    return false
   }
-  running.value = true
-  paused.value = false
-  round.value = 0
-  roundDone.value = 0
-  roundTotal.value = 0
-  startedAt = Date.now()
-  elapsed.value = '00:00'
-  pushLog('info', '[信息]', `开始发布，账号 ${accounts.value.length} 个，内容 ${contentCount.value} 篇`)
-  timer = setInterval(() => {
-    elapsed.value = formatElapsed(Date.now() - startedAt)
-  }, 1000)
-}
-async function onPause() {
-  await App.PausePublish()
-  paused.value = true
-}
-async function onResume() {
-  await App.ResumePublish()
-  paused.value = false
-}
-async function onStop() {
-  await App.StopPublish()
+  return true
 }
 
-function onKeywordSettings() {
-  showBanner('关键词设置功能待实现，需要你进一步说明关键词库和插入规则')
+async function onGenerate() {
+  if (generating.value) return
+  generating.value = true
+  try {
+    if (!(await saveContent())) return
+    drafts.value = (await App.Generate({ ...opts })) ?? []
+    // 用户可能刚往「文章库」目录丢了文件，顺手刷新一下计数
+    articles.value = (await App.LoadContent()).articles ?? []
+  } catch (e) {
+    showBanner(String(e))
+  } finally {
+    generating.value = false
+  }
 }
-function onSwitchProfile() {
-  showBanner('换号特征编辑功能待实现，需要你进一步说明具体字段')
+
+async function onExport() {
+  if (drafts.value.length === 0) return
+  const err = await App.ExportDrafts(drafts.value)
+  if (err) showBanner(err)
 }
-async function onViewResults() {
-  results.value = (await App.GetPublishResults()) ?? []
-  showResults.value = true
+
+async function onOpenDir() {
+  if (!(await saveContent())) return
+  const err = await App.OpenContentDir()
+  if (err) showBanner(err)
 }
-async function onCopyAllResults() {
-  const text = results.value.map((r) => `${r.time} ${r.ck} ${r.title} ${r.value}`).join('\n')
-  await App.CopyToClipboard(text)
+
+async function onImportText(target) {
+  try {
+    const text = await App.ImportTextFile()
+    if (!text) return
+    if (target === 'title') form.titleTemplate = text
+    else if (target === 'keywords') form.keywordsText = text
+    else if (target === 'images') form.imagesText = text
+    else if (target.startsWith('body')) {
+      const next = [...form.bodyTemplates]
+      next[Number(target.slice(4))] = text
+      form.bodyTemplates = next
+    } else if (target.startsWith('var')) {
+      const next = [...form.varTexts]
+      next[Number(target.slice(3))] = text
+      form.varTexts = next
+    }
+  } catch (e) {
+    showBanner(String(e))
+  }
+}
+
+async function onCopyDraft(draft) {
+  await App.CopyToClipboard(`${draft.title}\n\n${draft.body}`)
+}
+
+async function onCopyToken(token) {
+  await App.CopyToClipboard(token)
+  pushLog('info', '[信息]', `已复制 ${token}`)
 }
 
 async function onSaveConfig() {
-  const err = await App.SaveConfig({ ...cfg })
+  const err = await App.SaveConfig({ ...opts })
   if (err) {
     showBanner(err)
     return
@@ -308,7 +216,7 @@ function onClearLog() {
       :pill-text="pill.text"
       :pill-kind="pill.kind"
       :app-name="APP_NAME"
-      logo-text="G"
+      logo-text="M"
       @toggle-theme="toggleTheme"
       @minimize="WindowMinimise"
       @maximize="WindowToggleMaximise"
@@ -320,53 +228,35 @@ function onClearLog() {
     <div class="body">
       <NavRail :page="page" :items="NAV_ITEMS" :bottom-items="NAV_BOTTOM_ITEMS" @navigate="(p) => (page = p)" />
 
-      <PublishPage
-        v-if="page === 'publish'"
-        :accounts="accounts"
-        @import-account-click="onImportAccountClick"
-        @paste-clipboard="onPasteClipboard"
-        @remove-account="onRemoveAccount"
-        @mark-bad="onMarkBad"
-        @clear-accounts="onClearAccounts"
-        @export-result="onExportResult"
-        @test-account="onTestAccount"
-        @copy-ck="onCopyCK"
-        @save-config="onSaveConfig"
-      />
-      <HelpPage v-else-if="page === 'help'" />
-      <PlaceholderPage
+      <HelpPage v-if="page === 'help'" />
+      <ContentSettingsPage
         v-else
-        :title="PLACEHOLDER_PAGES[page].title"
-        :subtitle="PLACEHOLDER_PAGES[page].subtitle"
+        v-model:title-template="form.titleTemplate"
+        v-model:body-templates="form.bodyTemplates"
+        v-model:keywords-text="form.keywordsText"
+        v-model:images-text="form.imagesText"
+        v-model:var-texts="form.varTexts"
+        v-model:keyword-order="opts.keywordOrder"
+        v-model:keyword-transform="opts.keywordTransform"
+        v-model:shuffle-paragraphs="opts.shuffleParagraphs"
+        :article-count="articles.length"
+        :drafts="drafts"
+        @import-text="onImportText"
+        @copy-draft="onCopyDraft"
+        @copy-token="onCopyToken"
+        @open-dir="onOpenDir"
       />
 
-      <RunParamsPanel
-        v-model:threads="cfg.threads"
-        v-model:interval-sec="cfg.intervalSec"
-        v-model:per-account-count="cfg.perAccountCount"
-        v-model:fail-switch-count="cfg.failSwitchCount"
-        v-model:cycle-rounds="cfg.cycleRounds"
-        v-model:round-interval-sec="cfg.roundIntervalSec"
-        v-model:keyword-slots="cfg.keywordSlots"
-        v-model:create-repo="cfg.createRepo"
-        :content-count="contentCount"
-        :running="running"
-        :paused="paused"
-        :round="round"
-        :round-done="roundDone"
-        :round-total="roundTotal"
-        @select-folder="onSelectContentFolder"
-        @select-files="onSelectContentFiles"
-        @clear-content="onClearContent"
-        @start="onStart"
-        @pause="onPause"
-        @resume="onResume"
-        @stop="onStop"
+      <ContentParamsPanel
+        v-model:count="opts.count"
+        v-model:dedupe-lines="opts.dedupeLines"
+        v-model:chinese-only="opts.chineseOnly"
+        :draft-count="drafts.length"
+        :generating="generating"
+        @generate="onGenerate"
+        @export="onExport"
         @save-config="onSaveConfig"
-        @clear-accounts="onClearAccounts"
-        @keyword-settings="onKeywordSettings"
-        @switch-profile="onSwitchProfile"
-        @view-results="onViewResults"
+        @open-dir="onOpenDir"
       />
     </div>
 
@@ -376,20 +266,6 @@ function onClearLog() {
       @copy="onCopyLog"
       @export="onExportLog"
       @clear="onClearLog"
-    />
-    <StatusBar
-      :total="accounts.length"
-      :success="successCount"
-      :fail="failedCount"
-      :pending="pendingCount"
-      :elapsed="elapsed"
-    />
-
-    <ResultsModal
-      v-if="showResults"
-      :results="results"
-      @close="showResults = false"
-      @copy-all="onCopyAllResults"
     />
   </div>
 </template>

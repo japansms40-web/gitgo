@@ -1,4 +1,4 @@
-module githubbaidu
+module gitmd
 
 go 1.26
 

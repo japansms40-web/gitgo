@@ -1,19 +1,22 @@
 package config
 
-import "testing"
+import (
+	"testing"
 
-func TestNormalizeClampsKeywordSlots(t *testing.T) {
-	cfg := Config{KeywordSlots: -5}
-	cfg.Normalize()
-	if cfg.KeywordSlots != 0 {
-		t.Errorf("KeywordSlots = %d, want 0", cfg.KeywordSlots)
+	"gitmd/internal/contentgen"
+)
+
+func TestDefaultsAreValid(t *testing.T) {
+	got := defaults()
+	want := got
+	want.Normalize()
+	if got != want {
+		t.Errorf("默认值本身应当已经是合法的：defaults() = %+v，Normalize 后 = %+v", got, want)
 	}
-}
-
-func TestNormalizeKeepsPositiveKeywordSlots(t *testing.T) {
-	cfg := Config{KeywordSlots: 3}
-	cfg.Normalize()
-	if cfg.KeywordSlots != 3 {
-		t.Errorf("KeywordSlots = %d, want 3（合法值不应被改动）", cfg.KeywordSlots)
+	if got.Count < 1 {
+		t.Errorf("默认生成篇数应至少为 1，得到 %d", got.Count)
+	}
+	if got.KeywordOrder != contentgen.OrderSequential {
+		t.Errorf("默认关键词调用方式 = %q，期望 %q", got.KeywordOrder, contentgen.OrderSequential)
 	}
 }

@@ -15,7 +15,7 @@ func main() {
 	app := NewApp()
 
 	err := wails.Run(&options.App{
-		Title:     "GitHub 文章发布器",
+		Title:     "Git MD",
 		Width:     1120,
 		Height:    760,
 		Frameless: true,

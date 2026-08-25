@@ -1,95 +1,93 @@
-export namespace account {
+export namespace contentgen {
 	
-	export class Account {
-	    ck: string;
-	    ua: string;
-	    ip: string;
-	    status: string;
-	    success: number;
-	    fail: number;
-	    total: number;
-	    bad: boolean;
+	export class Article {
+	    name: string;
+	    body: string;
 	
 	    static createFrom(source: any = {}) {
-	        return new Account(source);
+	        return new Article(source);
 	    }
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.ck = source["ck"];
-	        this.ua = source["ua"];
-	        this.ip = source["ip"];
-	        this.status = source["status"];
-	        this.success = source["success"];
-	        this.fail = source["fail"];
-	        this.total = source["total"];
-	        this.bad = source["bad"];
+	        this.name = source["name"];
+	        this.body = source["body"];
 	    }
 	}
-
-}
-
-export namespace config {
-	
-	export class Config {
-	    threads: number;
-	    intervalSec: number;
-	    perAccountCount: number;
-	    failSwitchCount: number;
-	    cycleRounds: number;
-	    roundIntervalSec: number;
-	    createRepo: boolean;
-	    keywordSlots: number;
-	
-	    static createFrom(source: any = {}) {
-	        return new Config(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.threads = source["threads"];
-	        this.intervalSec = source["intervalSec"];
-	        this.perAccountCount = source["perAccountCount"];
-	        this.failSwitchCount = source["failSwitchCount"];
-	        this.cycleRounds = source["cycleRounds"];
-	        this.roundIntervalSec = source["roundIntervalSec"];
-	        this.createRepo = source["createRepo"];
-	        this.keywordSlots = source["keywordSlots"];
-	    }
-	}
-
-}
-
-export namespace main {
-	
-	export class PublishResult {
-	    time: string;
-	    ck: string;
+	export class Draft {
 	    title: string;
-	    value: string;
+	    body: string;
 	
 	    static createFrom(source: any = {}) {
-	        return new PublishResult(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.time = source["time"];
-	        this.ck = source["ck"];
-	        this.title = source["title"];
-	        this.value = source["value"];
-	    }
-	}
-	export class QueueItem {
-	    title: string;
-	
-	    static createFrom(source: any = {}) {
-	        return new QueueItem(source);
+	        return new Draft(source);
 	    }
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.title = source["title"];
+	        this.body = source["body"];
+	    }
+	}
+	export class Library {
+	    titleTemplate: string;
+	    bodyTemplates: string[];
+	    keywords: string[];
+	    vars: string[][];
+	    images: string[];
+	    articles: Article[];
+	
+	    static createFrom(source: any = {}) {
+	        return new Library(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.titleTemplate = source["titleTemplate"];
+	        this.bodyTemplates = source["bodyTemplates"];
+	        this.keywords = source["keywords"];
+	        this.vars = source["vars"];
+	        this.images = source["images"];
+	        this.articles = this.convertValues(source["articles"], Article);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class Options {
+	    count: number;
+	    keywordOrder: string;
+	    keywordTransform: string;
+	    shuffleParagraphs: boolean;
+	    dedupeLines: boolean;
+	    chineseOnly: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new Options(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.count = source["count"];
+	        this.keywordOrder = source["keywordOrder"];
+	        this.keywordTransform = source["keywordTransform"];
+	        this.shuffleParagraphs = source["shuffleParagraphs"];
+	        this.dedupeLines = source["dedupeLines"];
+	        this.chineseOnly = source["chineseOnly"];
 	    }
 	}
 
