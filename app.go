@@ -15,6 +15,7 @@ import (
 	"gitmd/internal/configdir"
 	"gitmd/internal/contentgen"
 	"gitmd/internal/contentstore"
+	"gitmd/internal/proxycheck"
 )
 
 // eventLog 是推给前端日志面板的一行运行日志。
@@ -214,6 +215,32 @@ func (a *App) ExportDrafts(drafts []contentgen.Draft) string {
 	}
 	a.emitInfo(fmt.Sprintf("已导出 %d 篇到 %s", n, dir))
 	return ""
+}
+
+// ---------- 代理 ----------
+
+// ProxyTestResult 是代理连通性拨测结果，回给前端展示。
+type ProxyTestResult struct {
+	Ok         bool   `json:"ok"`         // 是否连通（拿到任何 HTTP 响应即 true）
+	Message    string `json:"message"`    // 展示文案（成功/失败）
+	StatusCode int    `json:"statusCode"` // 目标返回的状态码，0 表示未拿到
+	LatencyMs  int64  `json:"latencyMs"`  // 往返耗时（毫秒）
+}
+
+// TestProxy 走给定代理拨测 github.com 连通性。proxyURL 支持 socks5:// / http:// / https://
+// （可带 user:pass@），空串表示直连。拿到任何 HTTP 响应即算连通。
+func (a *App) TestProxy(proxyURL string) ProxyTestResult {
+	res, err := proxycheck.Check(a.ctx, proxyURL)
+	if err != nil {
+		return ProxyTestResult{Ok: false, Message: "不通：" + err.Error()}
+	}
+	ms := res.Latency.Milliseconds()
+	return ProxyTestResult{
+		Ok:         true,
+		StatusCode: res.StatusCode,
+		LatencyMs:  ms,
+		Message:    fmt.Sprintf("连通 · HTTP %d · %d ms", res.StatusCode, ms),
+	}
 }
 
 // ---------- 通用工具 ----------
