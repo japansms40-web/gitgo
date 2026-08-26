@@ -302,11 +302,13 @@ type PublishAccount struct {
 
 // PublishConfig 是前端传入的发布配置（本轮生效的核心参数）。
 type PublishConfig struct {
-	Threads    int    `json:"threads"`    // 线程数量
-	Interval   int    `json:"interval"`   // 发布间隔（秒）
-	PerAccount int    `json:"perAccount"` // 每号发布次数
-	FailSwitch int    `json:"failSwitch"` // 失败换号
-	ProxyURL   string `json:"proxyUrl"`   // 代理（启用时非空）
+	Threads       int    `json:"threads"`       // 线程数量
+	Interval      int    `json:"interval"`      // 发布间隔（秒）
+	PerAccount    int    `json:"perAccount"`    // 每号发布次数
+	FailSwitch    int    `json:"failSwitch"`    // 失败换号
+	AccountCycles int    `json:"accountCycles"` // 账号循环轮数
+	RoundInterval int    `json:"roundInterval"` // 每轮间隔（秒）
+	ProxyURL      string `json:"proxyUrl"`      // 代理（启用时非空）
 }
 
 // PublishAccountUpdate 是发布过程中回给前端的账号状态更新（经 publish:account 事件）。
@@ -362,14 +364,16 @@ func (a *App) StartPublish(accounts []PublishAccount, cfg PublishConfig, genOpts
 	a.publishMu.Unlock()
 
 	runner := publish.New(publish.Config{
-		Threads:     cfg.Threads,
-		IntervalSec: cfg.Interval,
-		PerAccount:  cfg.PerAccount,
-		FailSwitch:  cfg.FailSwitch,
-		ProxyURL:    cfg.ProxyURL,
+		Threads:          cfg.Threads,
+		IntervalSec:      cfg.Interval,
+		PerAccount:       cfg.PerAccount,
+		FailSwitch:       cfg.FailSwitch,
+		Cycles:           cfg.AccountCycles,
+		RoundIntervalSec: cfg.RoundInterval,
+		ProxyURL:         cfg.ProxyURL,
 	}, accs, lib, genOpts, wailsReporter{a: a}, time.Now().UnixNano())
 
-	a.emitInfo(fmt.Sprintf("开始发布：账号 %d 个 · 线程 %d · 每号 %d 篇", len(accs), cfg.Threads, cfg.PerAccount))
+	a.emitInfo(fmt.Sprintf("开始发布：账号 %d 个 · 线程 %d · 每号 %d 篇 · %d 轮", len(accs), cfg.Threads, cfg.PerAccount, max(cfg.AccountCycles, 1)))
 
 	go func() {
 		defer func() {

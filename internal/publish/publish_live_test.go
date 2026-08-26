@@ -63,12 +63,15 @@ func TestRunner_Live(t *testing.T) {
 	}
 
 	rep := newCapture()
+	// 2 轮 × 每号 1 篇：验证多轮语义（若轮次不生效，只会发 1 篇）。
 	r := New(Config{
-		Threads:     1,
-		IntervalSec: 0,
-		PerAccount:  2,
-		FailSwitch:  3,
-		ProxyURL:    liveProxy(),
+		Threads:          1,
+		IntervalSec:      0,
+		PerAccount:       1,
+		FailSwitch:       3,
+		Cycles:           2,
+		RoundIntervalSec: 0,
+		ProxyURL:         liveProxy(),
 	}, []Account{{ID: 1, CK: ck}}, lib, contentgen.Options{}, rep, 42)
 
 	r.Run(context.Background())
@@ -76,8 +79,15 @@ func TestRunner_Live(t *testing.T) {
 	if rep.statuses[1] != "success" {
 		t.Fatalf("账号最终状态=%q, 期望 success；日志：%v", rep.statuses[1], rep.logs)
 	}
-	if rep.success[1] < 2 {
-		t.Errorf("成功篇数=%d, 期望 >= 2", rep.success[1])
+	// 每轮 success 从 0 计，末轮应为 1；两轮共发 2 个文件（日志里两条 [发布]）。
+	pubs := 0
+	for _, l := range rep.logs {
+		if len(l) >= 4 && l[:len("[发布]")] == "[发布]" {
+			pubs++
+		}
+	}
+	if pubs < 2 {
+		t.Errorf("累计发布条数=%d, 期望 >= 2（2 轮各 1 篇）；日志：%v", pubs, rep.logs)
 	}
 	t.Logf("发布日志：%v", rep.logs)
 }
