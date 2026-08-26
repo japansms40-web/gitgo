@@ -68,11 +68,13 @@ const TOKEN_COLUMNS = [
 const activeTab = ref('template')
 
 // 外部要求打开某文件时，切到「文件库」标签（具体选中由 FileLibraryPanel 处理）。
+// immediate：从别的页跳过来时本组件是刚挂载的，需在挂载即按当前 openFile 切 tab。
 watch(
   () => props.openFile,
   (v) => {
     if (v && v.path) activeTab.value = 'library'
   },
+  { immediate: true },
 )
 const tabs = computed(() => [
   { key: 'template', label: '模板' },
