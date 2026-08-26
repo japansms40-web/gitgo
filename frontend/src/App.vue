@@ -229,11 +229,10 @@ onMounted(async () => {
     links.value.push({ repo: l.repo, file: l.file, url: l.url })
     if (links.value.length > 20000) links.value.shift()
   })
-  // 发布任务结束：把本次链接落盘到 查看链接.txt
-  EventsOn('publish:done', async () => {
+  // 发布任务结束（链接已由后端边发边增量写入 查看链接.txt）
+  EventsOn('publish:done', () => {
     publishing.value = false
     persistAccounts()
-    if (links.value.length > 0) await App.WriteLinksFile(linksText())
     pushLog('info', '[信息]', `发布任务结束，共 ${links.value.length} 条链接`)
   })
 
@@ -501,15 +500,10 @@ function onAccountFeature() {
   pushLog('info', '[信息]', `已为 ${n} 个账号换号特征`)
 }
 
-// linksText 把本次发布链接拼成文本（每行一个 URL）。
-function linksText() {
-  return links.value.map((l) => l.url).join('\n') + '\n'
-}
-
-// onViewLinks 跳到「内容设置 → 文件库」并打开 查看链接.txt——不管本次有没有发布链接都能跳。
-// 有新链接则写入覆盖；没有则保留上次的文件（不存在时建空文件）。
+// onViewLinks 跳到「内容设置 → 文件库」并打开 查看链接.txt。
+// 链接在发布过程中已由后端增量写入该文件；这里只确保文件存在（从没发过则建空）再跳转。
 async function onViewLinks() {
-  const err = links.value.length > 0 ? await App.WriteLinksFile(linksText()) : await App.EnsureLinksFile()
+  const err = await App.EnsureLinksFile()
   if (err) {
     showBanner(err)
     return
@@ -517,9 +511,6 @@ async function onViewLinks() {
   page.value = 'content'
   // 变更 n 触发文件库重新加载并选中该文件（Date.now 仅作触发用，不参与逻辑）
   openLibFile.value = { path: LINKS_FILE, n: Date.now() }
-  if (links.value.length > 0) {
-    pushLog('info', '[信息]', `已输出 ${links.value.length} 条链接到 ${LINKS_FILE}`)
-  }
 }
 
 function logText() {

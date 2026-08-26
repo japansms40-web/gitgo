@@ -47,5 +47,3 @@ export function StopPublish():Promise<void>;
 export function TestProxy(arg1:string):Promise<main.ProxyTestResult>;
 
 export function WriteConfigFile(arg1:string,arg2:string):Promise<string>;
-
-export function WriteLinksFile(arg1:string):Promise<string>;

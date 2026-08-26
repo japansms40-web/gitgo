@@ -389,6 +389,7 @@ func (a *App) StartPublish(accounts []PublishAccount, cfg PublishConfig, genOpts
 		ProxyURL:         cfg.ProxyURL,
 	}, accs, lib, genOpts, wailsReporter{a: a}, time.Now().UnixNano())
 
+	a.resetLinksFile() // 新一轮发布清空 查看链接.txt，之后由 worker 增量 append
 	a.emitInfo(fmt.Sprintf("开始发布：账号 %d 个 · 线程 %d · 每号 %d 篇 · %d 轮", len(accs), cfg.Threads, cfg.PerAccount, max(cfg.AccountCycles, 1)))
 
 	go func() {
@@ -416,21 +417,32 @@ func (a *App) StopPublish() {
 // LinksFileName 是「查看链接」输出到素材目录根下的文件名，与「外链库.txt」区分开。
 const LinksFileName = "查看链接.txt"
 
-// WriteLinksFile 把发布链接写入素材目录下的 查看链接.txt（不存在则创建）。
-// 供「查看链接」按钮先落盘、再在文件库里打开。返回错误文案或空串。
-func (a *App) WriteLinksFile(content string) string {
+// resetLinksFile 清空 查看链接.txt（每次新发布开始时调用，丢弃上一轮链接）。尽力而为。
+func (a *App) resetLinksFile() {
 	dir, err := a.contentDir() // contentDir 会 ensureLayout：目录不存在时先建
 	if err != nil {
-		return err.Error()
+		return
 	}
-	normalized := strings.ReplaceAll(content, "\r\n", "\n")
-
 	a.linksMu.Lock()
 	defer a.linksMu.Unlock()
-	if err := os.WriteFile(filepath.Join(dir, LinksFileName), []byte(normalized), 0o644); err != nil {
-		return err.Error()
+	_ = os.WriteFile(filepath.Join(dir, LinksFileName), []byte{}, 0o644)
+}
+
+// appendLink 把一条发布链接增量 append 到 查看链接.txt（不存在则创建）。
+// 由发布 worker 每成功发一篇即调用，边发边落盘、抗崩溃；linksMu 串行化并发写。尽力而为，出错静默。
+func (a *App) appendLink(url string) {
+	dir, err := a.contentDir()
+	if err != nil {
+		return
 	}
-	return ""
+	a.linksMu.Lock()
+	defer a.linksMu.Unlock()
+	f, err := os.OpenFile(filepath.Join(dir, LinksFileName), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	_, _ = f.WriteString(url + "\n")
 }
 
 // EnsureLinksFile 确保 查看链接.txt 存在（不存在则建空文件，已存在则不动，保留上次的链接）。
@@ -474,6 +486,7 @@ func (r wailsReporter) Published(id int, repo, file, url string) {
 	runtime.EventsEmit(r.a.ctx, eventPublishLink, PublishLink{
 		ID: id, Repo: repo, File: file, URL: url,
 	})
+	r.a.appendLink(url) // 边发边增量落盘到 查看链接.txt
 }
 
 // ---------- 通用工具 ----------
