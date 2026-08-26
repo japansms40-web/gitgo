@@ -126,9 +126,23 @@ func (r *Runner) worker(ctx context.Context, round, id int, ch <-chan Account, w
 	}
 }
 
+// log 是 report.Log 的格式化便捷封装。kind 决定前端颜色（info/success/failure/retry/debug）。
+func (r *Runner) log(kind, tag, format string, args ...any) {
+	r.report.Log(kind, tag, fmt.Sprintf(format, args...))
+}
+
 // processAccount 处理单个账号：验活 → 定目标仓库（为 0 建仓）→ 连发 PerAccount 篇。
+// 全程按 请求/响应/调试/错误 打点，日志落盘后便于事后（含 AI）排查每一步的请求与返回。
 func (r *Runner) processAccount(ctx context.Context, a Account, rnd *rand.Rand) {
+	ck := fmt.Sprintf("账号#%d", a.ID) // 日志标签用账号序号，避免把 Cookie 片段写进磁盘日志
 	r.report.Account(a.ID, "publishing", 0, 0)
+	r.log("start", "[账号]", "开始处理 %s", ck)
+
+	proxyDesc := r.cfg.ProxyURL
+	if proxyDesc == "" {
+		proxyDesc = "直连"
+	}
+	r.log("debug", "[调试]", "%s 代理=%s", ck, proxyDesc)
 
 	client, err := github.New(a.CK, github.WithProxy(r.cfg.ProxyURL))
 	if err != nil {
@@ -137,17 +151,21 @@ func (r *Runner) processAccount(ctx context.Context, a Account, rnd *rand.Rand) 
 	}
 
 	// 1. 验活 + 仓库数
+	r.log("debug", "[请求]", "%s GET /repos?q=owner:@me&page=1", ck)
 	repos, err := client.ListRepos(ctx, 1)
+	code := client.LastStatusCode()
 	if err != nil {
-		if code := client.LastStatusCode(); code == 401 || code == 403 {
+		if code == 401 || code == 403 {
 			r.report.Account(a.ID, "bad", 0, 0)
-			r.report.Log("failure", "[坏号]", fmt.Sprintf("%s · HTTP %d", short(a.CK), code))
+			r.log("failure", "[坏号]", "%s 验活 HTTP %d（鉴权失败）", ck, code)
 			return
 		}
-		r.fail(a, "验活失败："+err.Error())
+		r.report.Account(a.ID, "failed", 0, 0)
+		r.log("failure", "[错误]", "%s 验活失败 HTTP %d：%v", ck, code, err)
 		return
 	}
 	route := repos.Payload.ReposFinderPageRoute
+	r.log("info", "[响应]", "%s 验活 HTTP %d · 仓库 %d 个", ck, code, route.RepositoryCount)
 
 	owner := github.OwnerFromCookie(a.CK)
 	if owner == "" && len(route.Repositories) > 0 {
@@ -157,6 +175,7 @@ func (r *Runner) processAccount(ctx context.Context, a Account, rnd *rand.Rand) 
 		r.fail(a, "无法确定 owner（Cookie 缺 dotcom_user）")
 		return
 	}
+	r.log("debug", "[调试]", "%s owner=%s", ck, owner)
 
 	// 内容：一次性生成 PerAccount 篇（让顺序关键词等能在批内轮转）。
 	drafts := r.genBatch(rnd, r.cfg.PerAccount)
@@ -164,23 +183,30 @@ func (r *Runner) processAccount(ctx context.Context, a Account, rnd *rand.Rand) 
 		r.fail(a, "生成内容为空，请先在「内容设置」配置模板/词库")
 		return
 	}
+	r.log("debug", "[调试]", "%s 生成 %d 篇待发", ck, len(drafts))
 
 	// 2. 定目标仓库
 	repoName := ""
 	baseCommit := ""
 	if route.RepositoryCount == 0 || len(route.Repositories) == 0 {
 		repoName = sanitizeRepoName(drafts[0].Title)
+		r.log("debug", "[请求]", "%s POST /repositories 建仓 %s/%s", ck, owner, repoName)
 		if _, err := client.CreateRepo(ctx, github.CreateRepoParams{Owner: owner, Name: repoName, Visibility: "public"}); err != nil {
-			r.fail(a, "建仓库失败："+err.Error())
+			r.report.Account(a.ID, "failed", 0, 0)
+			r.log("failure", "[错误]", "%s 建仓失败 HTTP %d：%v", ck, client.LastStatusCode(), err)
 			return
 		}
-		r.report.Log("info", "[建仓]", fmt.Sprintf("%s/%s", owner, repoName))
+		r.log("success", "[建仓]", "%s/%s（HTTP %d）", owner, repoName, client.LastStatusCode())
 		baseCommit = "" // 新空仓库首次提交无父 commit
 	} else {
 		repoName = route.Repositories[0].Name
-		// 取已有仓库当前 HEAD 作首篇父提交；失败则留空由服务端兜底。
+		r.log("info", "[信息]", "%s 用已有仓库 %s/%s", ck, owner, repoName)
+		r.log("debug", "[请求]", "%s GET /github-copilot/chat/implicit-context/%s/%s/... 取父提交", ck, owner, repoName)
 		if ic, err := client.GetImplicitContext(ctx, owner, repoName, "/"+owner+"/"+repoName+"/new/main"); err == nil {
 			baseCommit = ic.CommitOID
+			r.log("debug", "[响应]", "%s 父提交=%s（HTTP %d）", ck, baseCommit, client.LastStatusCode())
+		} else {
+			r.log("retry", "[调试]", "%s 取父提交失败，留空由服务端兜底：%v", ck, err)
 		}
 	}
 
@@ -189,12 +215,14 @@ func (r *Runner) processAccount(ctx context.Context, a Account, rnd *rand.Rand) 
 	for i, d := range drafts {
 		select {
 		case <-ctx.Done():
+			r.log("retry", "[停止]", "%s 被取消，已发 %d 篇", ck, success)
 			r.report.Account(a.ID, finalStatus(success), success, fail)
 			return
 		default:
 		}
 
 		fn := sanitizeFilename(d.Title)
+		r.log("debug", "[请求]", "%s POST /%s/%s/create/main ← %s（第 %d/%d 篇）", ck, owner, repoName, fn, i+1, len(drafts))
 		resp, ferr := client.CreateFile(ctx, github.CreateFileParams{
 			Owner:      owner,
 			Repo:       repoName,
@@ -204,12 +232,13 @@ func (r *Runner) processAccount(ctx context.Context, a Account, rnd *rand.Rand) 
 			Message:    firstLine(d.Title),
 			BaseCommit: baseCommit,
 		})
+		fcode := client.LastStatusCode()
 		if ferr != nil {
 			fail++
 			r.report.Account(a.ID, "publishing", success, fail)
-			r.report.Log("failure", "[失败]", fmt.Sprintf("%s · %v", short(a.CK), ferr))
+			r.log("failure", "[错误]", "%s 发文件失败 HTTP %d：%v", ck, fcode, ferr)
 			if fail >= r.cfg.FailSwitch {
-				r.report.Log("retry", "[换号]", fmt.Sprintf("%s 累计失败 %d，停发", short(a.CK), fail))
+				r.log("retry", "[换号]", "%s 累计失败 %d，停发换号", ck, fail)
 				break
 			}
 			continue
@@ -219,13 +248,16 @@ func (r *Runner) processAccount(ctx context.Context, a Account, rnd *rand.Rand) 
 		fileURL := "https://github.com/" + owner + "/" + repoName + "/blob/main/" + url.PathEscape(fn)
 		r.report.Account(a.ID, "publishing", success, fail)
 		r.report.Published(a.ID, repoName, fn, fileURL)
-		r.report.Log("success", "[发布]", fmt.Sprintf("%s/%s ← %s", owner, repoName, fn))
+		r.log("info", "[响应]", "%s HTTP %d commit=%s", ck, fcode, baseCommit)
+		r.log("success", "[发布]", "%s/%s ← %s", owner, repoName, fn)
 
 		if i < len(drafts)-1 && !sleepCtx(ctx, time.Duration(r.cfg.IntervalSec)*time.Second) {
-			break // 被取消
+			r.log("retry", "[停止]", "%s 被取消", ck)
+			break
 		}
 	}
 
+	r.log("info", "[账号]", "%s 完成：成功 %d 失败 %d", ck, success, fail)
 	r.report.Account(a.ID, finalStatus(success), success, fail)
 }
 
@@ -244,7 +276,7 @@ func (r *Runner) genBatch(rnd *rand.Rand, n int) []contentgen.Draft {
 // fail 统一回报账号失败（非坏号，如网络/代理/建仓/内容问题）。
 func (r *Runner) fail(a Account, msg string) {
 	r.report.Account(a.ID, "failed", 0, 0)
-	r.report.Log("failure", "[失败]", fmt.Sprintf("%s · %s", short(a.CK), msg))
+	r.log("failure", "[错误]", "账号#%d · %s", a.ID, msg)
 }
 
 // finalStatus 按成功篇数决定账号最终状态。
@@ -268,14 +300,6 @@ func sleepCtx(ctx context.Context, d time.Duration) bool {
 	case <-t.C:
 		return true
 	}
-}
-
-// short 截断 CK 便于日志展示。
-func short(ck string) string {
-	if len(ck) > 16 {
-		return ck[:16] + "…"
-	}
-	return ck
 }
 
 // firstLine 取字符串首行（作提交信息，避免整段正文当 commit message）。
