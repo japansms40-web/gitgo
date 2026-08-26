@@ -10,6 +10,8 @@ export function ClipboardGetText():Promise<string>;
 
 export function CopyToClipboard(arg1:string):Promise<string>;
 
+export function EnsureLinksFile():Promise<string>;
+
 export function ExportDrafts(arg1:Array<contentgen.Draft>):Promise<string>;
 
 export function ExportLog(arg1:string):Promise<string>;
