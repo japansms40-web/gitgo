@@ -44,6 +44,9 @@ type App struct {
 	publishMu     sync.Mutex
 	publishing    bool
 	publishCancel context.CancelFunc
+
+	// 日志落盘串行化（多 worker 并发写同一天的日志文件）。
+	logMu sync.Mutex
 }
 
 func NewApp() *App { return &App{} }
@@ -445,9 +448,11 @@ func (a *App) EnsureLinksFile() string {
 type wailsReporter struct{ a *App }
 
 func (r wailsReporter) Log(kind, tag, msg string) {
+	now := time.Now()
 	runtime.EventsEmit(r.a.ctx, eventLog, LogLine{
-		Time: time.Now().Format("15:04:05"), Tag: tag, Kind: kind, Msg: msg,
+		Time: now.Format("15:04:05"), Tag: tag, Kind: kind, Msg: msg,
 	})
+	r.a.writeLogLine(now, tag, msg)
 }
 
 func (r wailsReporter) Account(id int, status string, success, fail int) {
@@ -519,7 +524,60 @@ func (a *App) ExportLog(text string) string {
 }
 
 func (a *App) emitInfo(msg string) {
+	now := time.Now()
 	runtime.EventsEmit(a.ctx, eventLog, LogLine{
-		Time: time.Now().Format("15:04:05"), Tag: "[信息]", Kind: "info", Msg: msg,
+		Time: now.Format("15:04:05"), Tag: "[信息]", Kind: "info", Msg: msg,
 	})
+	a.writeLogLine(now, "[信息]", msg)
+}
+
+// ---------- 运行日志落盘（按日期隔离）----------
+
+// logsDir 返回日志目录 <应用数据>/gitmd/logs，并确保其存在。
+func (a *App) logsDir() (string, error) {
+	dir, err := contentstore.DefaultDir() // <应用数据>/gitmd/content
+	if err != nil {
+		return "", err
+	}
+	logs := filepath.Join(filepath.Dir(dir), "logs")
+	if err := os.MkdirAll(logs, 0o755); err != nil {
+		return "", err
+	}
+	return logs, nil
+}
+
+// writeLogLine 把一行日志追加到当天的日志文件 <logsDir>/YYYY-MM-DD.log。
+// 尽力而为：出错就静默丢弃，不打断主流程。并发写用 logMu 串行化。
+func (a *App) writeLogLine(t time.Time, tag, msg string) {
+	dir, err := a.logsDir()
+	if err != nil {
+		return
+	}
+	line := t.Format("15:04:05") + " " + tag + " " + msg + "\n"
+
+	a.logMu.Lock()
+	defer a.logMu.Unlock()
+	f, err := os.OpenFile(filepath.Join(dir, t.Format("2006-01-02")+".log"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	_, _ = f.WriteString(line)
+}
+
+// AppendLog 供前端把自己产生的日志行（如 UI 提示）也落到当天日志文件。tag/msg 分开传。
+func (a *App) AppendLog(tag, msg string) {
+	a.writeLogLine(time.Now(), tag, msg)
+}
+
+// OpenLogsDir 在系统文件管理器里打开日志目录，方便直接查看按日期分的日志文件。
+func (a *App) OpenLogsDir() string {
+	dir, err := a.logsDir()
+	if err != nil {
+		return err.Error()
+	}
+	if err := openInFileManager(dir); err != nil {
+		return err.Error()
+	}
+	return ""
 }

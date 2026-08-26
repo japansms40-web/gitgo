@@ -4,6 +4,8 @@ import {main} from '../models';
 import {contentgen} from '../models';
 import {configdir} from '../models';
 
+export function AppendLog(arg1:string,arg2:string):Promise<void>;
+
 export function CheckAccount(arg1:string,arg2:string):Promise<main.AccountCheckResult>;
 
 export function ClipboardGetText():Promise<string>;
@@ -27,6 +29,8 @@ export function LoadConfig():Promise<contentgen.Options>;
 export function LoadContent():Promise<contentgen.Library>;
 
 export function OpenContentDir():Promise<string>;
+
+export function OpenLogsDir():Promise<string>;
 
 export function ReadConfigFile(arg1:string):Promise<configdir.FilePreview>;
 
