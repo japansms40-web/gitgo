@@ -34,9 +34,9 @@ type Config struct {
 
 // Reporter 把进度回报给上层。实现必须并发安全（多 worker 并发调用）。
 type Reporter interface {
-	Log(kind, tag, msg string)                        // 一行日志
-	Account(id int, status string, success, fail int) // 账号状态更新
-	Published(id int, repo, file, url string)         // 成功发布一篇（含 GitHub 链接）
+	Log(kind, tag, msg string)                           // 一行日志
+	Account(id int, status string, success, fail int)    // 账号状态更新
+	Published(id int, repo, file string, urls ...string) // 成功发布一篇（一篇多条 GitHub 链接，须成对原子落盘）
 }
 
 // Runner 执行一次批量发布。
@@ -245,9 +245,11 @@ func (r *Runner) processAccount(ctx context.Context, a Account, rnd *rand.Rand) 
 		}
 		success++
 		baseCommit = commitSHAFromQuorumPath(resp.Data.CommitQuorumPollPath)
-		fileURL := "https://github.com/" + owner + "/" + repoName + "/blob/main/" + url.PathEscape(fn)
+		// 每篇输出两条链接：commit（提交）+ blob（文件），成对上报、原子落盘。
+		commitURL := "https://github.com/" + owner + "/" + repoName + "/commit/" + baseCommit
+		blobURL := "https://github.com/" + owner + "/" + repoName + "/blob/main/" + url.PathEscape(fn)
 		r.report.Account(a.ID, "publishing", success, fail)
-		r.report.Published(a.ID, repoName, fn, fileURL)
+		r.report.Published(a.ID, repoName, fn, commitURL, blobURL)
 		r.log("info", "[响应]", "%s HTTP %d commit=%s", ck, fcode, baseCommit)
 		r.log("success", "[发布]", "%s/%s ← %s", owner, repoName, fn)
 
