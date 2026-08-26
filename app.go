@@ -428,13 +428,23 @@ func (a *App) resetLinksFile() {
 	_ = os.WriteFile(filepath.Join(dir, LinksFileName), []byte{}, 0o644)
 }
 
-// appendLink 把一条发布链接增量 append 到 查看链接.txt（不存在则创建）。
-// 由发布 worker 每成功发一篇即调用，边发边落盘、抗崩溃；linksMu 串行化并发写。尽力而为，出错静默。
-func (a *App) appendLink(url string) {
+// appendLinks 把一篇的多条链接增量 append 到 查看链接.txt（不存在则创建），
+// 一次持锁写完全部行——保证同一篇的 commit/blob 成对相邻，不被其它 worker 插入打断。
+// 由发布 worker 每成功发一篇即调用，边发边落盘、抗崩溃。尽力而为，出错静默。
+func (a *App) appendLinks(urls ...string) {
+	if len(urls) == 0 {
+		return
+	}
 	dir, err := a.contentDir()
 	if err != nil {
 		return
 	}
+	var b strings.Builder
+	for _, u := range urls {
+		b.WriteString(u)
+		b.WriteByte('\n')
+	}
+
 	a.linksMu.Lock()
 	defer a.linksMu.Unlock()
 	f, err := os.OpenFile(filepath.Join(dir, LinksFileName), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
@@ -442,7 +452,7 @@ func (a *App) appendLink(url string) {
 		return
 	}
 	defer f.Close()
-	_, _ = f.WriteString(url + "\n")
+	_, _ = f.WriteString(b.String())
 }
 
 // EnsureLinksFile 确保 查看链接.txt 存在（不存在则建空文件，已存在则不动，保留上次的链接）。
@@ -482,11 +492,13 @@ func (r wailsReporter) Account(id int, status string, success, fail int) {
 	})
 }
 
-func (r wailsReporter) Published(id int, repo, file, url string) {
-	runtime.EventsEmit(r.a.ctx, eventPublishLink, PublishLink{
-		ID: id, Repo: repo, File: file, URL: url,
-	})
-	r.a.appendLink(url) // 边发边增量落盘到 查看链接.txt
+func (r wailsReporter) Published(id int, repo, file string, urls ...string) {
+	for _, u := range urls {
+		runtime.EventsEmit(r.a.ctx, eventPublishLink, PublishLink{
+			ID: id, Repo: repo, File: file, URL: u,
+		})
+	}
+	r.a.appendLinks(urls...) // 一篇的多条链接成对原子落盘到 查看链接.txt
 }
 
 // ---------- 通用工具 ----------

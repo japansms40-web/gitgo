@@ -32,10 +32,12 @@ func (r *captureReporter) Account(id int, status string, success, fail int) {
 	r.statuses[id] = status
 	r.success[id] = success
 }
-func (r *captureReporter) Published(id int, repo, file, url string) {
+func (r *captureReporter) Published(id int, repo, file string, urls ...string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.logs = append(r.logs, "[链接] "+url)
+	for _, u := range urls {
+		r.logs = append(r.logs, "[链接] "+u)
+	}
 }
 
 func liveProxy() string {
