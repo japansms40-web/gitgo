@@ -14,6 +14,10 @@ export function CopyToClipboard(arg1) {
   return window['go']['main']['App']['CopyToClipboard'](arg1);
 }
 
+export function EnsureLinksFile() {
+  return window['go']['main']['App']['EnsureLinksFile']();
+}
+
 export function ExportDrafts(arg1) {
   return window['go']['main']['App']['ExportDrafts'](arg1);
 }

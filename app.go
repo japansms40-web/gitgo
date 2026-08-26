@@ -424,6 +424,23 @@ func (a *App) WriteLinksFile(content string) string {
 	return ""
 }
 
+// EnsureLinksFile 确保 查看链接.txt 存在（不存在则建空文件，已存在则不动，保留上次的链接）。
+// 供「查看链接」在本次没有新链接时也能跳转打开该文件。返回错误文案或空串。
+func (a *App) EnsureLinksFile() string {
+	dir, err := a.contentDir()
+	if err != nil {
+		return err.Error()
+	}
+	p := filepath.Join(dir, LinksFileName)
+	if _, err := os.Stat(p); err == nil {
+		return "" // 已存在，保留内容
+	}
+	if err := os.WriteFile(p, []byte{}, 0o644); err != nil {
+		return err.Error()
+	}
+	return ""
+}
+
 // wailsReporter 把 publish 引擎的进度转成 Wails 事件回前端。EventsEmit 并发安全。
 type wailsReporter struct{ a *App }
 

@@ -497,13 +497,10 @@ function linksText() {
   return links.value.map((l) => l.url).join('\n') + '\n'
 }
 
-// onViewLinks 把本次发布链接写入素材目录的 查看链接.txt，然后跳到「内容设置 → 文件库」并打开它。
+// onViewLinks 跳到「内容设置 → 文件库」并打开 查看链接.txt——不管本次有没有发布链接都能跳。
+// 有新链接则写入覆盖；没有则保留上次的文件（不存在时建空文件）。
 async function onViewLinks() {
-  if (links.value.length === 0) {
-    pushLog('info', '[信息]', '暂无发布链接，先跑一次发布')
-    return
-  }
-  const err = await App.WriteLinksFile(linksText())
+  const err = links.value.length > 0 ? await App.WriteLinksFile(linksText()) : await App.EnsureLinksFile()
   if (err) {
     showBanner(err)
     return
@@ -511,7 +508,9 @@ async function onViewLinks() {
   page.value = 'content'
   // 变更 n 触发文件库重新加载并选中该文件（Date.now 仅作触发用，不参与逻辑）
   openLibFile.value = { path: LINKS_FILE, n: Date.now() }
-  pushLog('info', '[信息]', `已输出 ${links.value.length} 条链接到 ${LINKS_FILE}`)
+  if (links.value.length > 0) {
+    pushLog('info', '[信息]', `已输出 ${links.value.length} 条链接到 ${LINKS_FILE}`)
+  }
 }
 
 function logText() {
