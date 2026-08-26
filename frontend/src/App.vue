@@ -1,6 +1,6 @@
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
-import { TitleBar, NavRail, LogPanel } from '@dongfang/df-ui-shell'
+import { TitleBar, NavRail, LogPanel, ResultsModal } from '@dongfang/df-ui-shell'
 import ContentSettingsPage from './components/ContentSettingsPage.vue'
 import ContentParamsPanel from './components/ContentParamsPanel.vue'
 import PublishPage from './components/PublishPage.vue'
@@ -104,6 +104,15 @@ try {
 }
 const proxyTesting = ref(false)
 const proxyTestResult = ref(null)
+
+// ---------- 发布链接（查看链接弹窗）----------
+const links = ref([]) // {time, repo, file, url}
+const showLinks = ref(false)
+const LINK_COLUMNS = [
+  { key: 'repo', label: '仓库', class: 'mono ellipsis' },
+  { key: 'file', label: '文件', class: 'ellipsis' },
+  { key: 'url', label: '链接', class: 'ellipsis mono' },
+]
 
 function onSaveProxy() {
   localStorage.setItem(PROXY_KEY, JSON.stringify({ ...proxy }))
@@ -209,11 +218,16 @@ onMounted(async () => {
     a.fail = u.fail
     if (u.status === 'bad') a.bad = true
   })
+  // 发布成功一篇：收集链接供「查看链接」
+  EventsOn('publish:link', (l) => {
+    links.value.push({ time: new Date().toTimeString().slice(0, 8), repo: l.repo, file: l.file, url: l.url })
+    if (links.value.length > 5000) links.value.shift()
+  })
   // 发布任务结束
   EventsOn('publish:done', () => {
     publishing.value = false
     persistAccounts()
-    pushLog('info', '[信息]', '发布任务结束')
+    pushLog('info', '[信息]', `发布任务结束，共 ${links.value.length} 条链接`)
   })
 
   Object.assign(opts, await App.LoadConfig())
@@ -332,6 +346,7 @@ async function onPublishAll() {
   }
   // 先把模板落盘，保证后端读到最新内容
   if (!(await saveTemplates())) return
+  links.value = [] // 新一轮发布清空旧链接
   publishing.value = true
   const cfg = {
     threads: run.threads,
@@ -479,8 +494,19 @@ function onAccountFeature() {
   pushLog('info', '[信息]', `已为 ${n} 个账号换号特征`)
 }
 
+// onViewLinks 打开「查看链接」弹窗，展示本次发布成功的所有 GitHub 文件链接。
 function onViewLinks() {
-  pushLog('info', '[信息]', '查看链接（功能待接入）')
+  if (links.value.length === 0) {
+    pushLog('info', '[信息]', '暂无发布链接，先跑一次发布')
+    return
+  }
+  showLinks.value = true
+}
+
+// onCopyLinks 复制全部链接（每行一个 URL）到剪贴板。
+async function onCopyLinks() {
+  await App.CopyToClipboard(links.value.map((l) => l.url).join('\n'))
+  pushLog('info', '[信息]', `已复制 ${links.value.length} 条链接`)
 }
 
 function logText() {
@@ -581,6 +607,15 @@ function onClearLog() {
       @copy="onCopyLog"
       @export="onExportLog"
       @clear="onClearLog"
+    />
+
+    <ResultsModal
+      v-if="showLinks"
+      title="发布链接"
+      :results="links"
+      :columns="LINK_COLUMNS"
+      @close="showLinks = false"
+      @copy-all="onCopyLinks"
     />
   </div>
 </template>

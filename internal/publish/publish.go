@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"math/rand"
+	"net/url"
 	"sync"
 	"time"
 
@@ -35,6 +36,7 @@ type Config struct {
 type Reporter interface {
 	Log(kind, tag, msg string)                        // 一行日志
 	Account(id int, status string, success, fail int) // 账号状态更新
+	Published(id int, repo, file, url string)         // 成功发布一篇（含 GitHub 链接）
 }
 
 // Runner 执行一次批量发布。
@@ -192,11 +194,12 @@ func (r *Runner) processAccount(ctx context.Context, a Account, rnd *rand.Rand) 
 		default:
 		}
 
+		fn := sanitizeFilename(d.Title)
 		resp, ferr := client.CreateFile(ctx, github.CreateFileParams{
 			Owner:      owner,
 			Repo:       repoName,
 			Branch:     "main",
-			Filename:   sanitizeFilename(d.Title),
+			Filename:   fn,
 			Content:    d.Body,
 			Message:    firstLine(d.Title),
 			BaseCommit: baseCommit,
@@ -213,8 +216,10 @@ func (r *Runner) processAccount(ctx context.Context, a Account, rnd *rand.Rand) 
 		}
 		success++
 		baseCommit = commitSHAFromQuorumPath(resp.Data.CommitQuorumPollPath)
+		fileURL := "https://github.com/" + owner + "/" + repoName + "/blob/main/" + url.PathEscape(fn)
 		r.report.Account(a.ID, "publishing", success, fail)
-		r.report.Log("success", "[发布]", fmt.Sprintf("%s/%s ← %s", owner, repoName, sanitizeFilename(d.Title)))
+		r.report.Published(a.ID, repoName, fn, fileURL)
+		r.report.Log("success", "[发布]", fmt.Sprintf("%s/%s ← %s", owner, repoName, fn))
 
 		if i < len(drafts)-1 && !sleepCtx(ctx, time.Duration(r.cfg.IntervalSec)*time.Second) {
 			break // 被取消

@@ -319,9 +319,18 @@ type PublishAccountUpdate struct {
 	Fail    int    `json:"fail"`
 }
 
+// PublishLink 是一条发布成功的链接（经 publish:link 事件回前端）。
+type PublishLink struct {
+	ID   int    `json:"id"`   // 账号 id
+	Repo string `json:"repo"` // 仓库名
+	File string `json:"file"` // 文件名
+	URL  string `json:"url"`  // GitHub 文件链接
+}
+
 // 发布事件名。
 const (
 	eventPublishAccount = "publish:account" // 单账号状态更新
+	eventPublishLink    = "publish:link"    // 发布成功一篇的链接
 	eventPublishDone    = "publish:done"    // 整个任务结束
 )
 
@@ -409,6 +418,12 @@ func (r wailsReporter) Log(kind, tag, msg string) {
 func (r wailsReporter) Account(id int, status string, success, fail int) {
 	runtime.EventsEmit(r.a.ctx, eventPublishAccount, PublishAccountUpdate{
 		ID: id, Status: status, Success: success, Fail: fail,
+	})
+}
+
+func (r wailsReporter) Published(id int, repo, file, url string) {
+	runtime.EventsEmit(r.a.ctx, eventPublishLink, PublishLink{
+		ID: id, Repo: repo, File: file, URL: url,
 	})
 }
 
