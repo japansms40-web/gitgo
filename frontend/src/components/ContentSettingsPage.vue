@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import FileLibraryPanel from './FileLibraryPanel.vue'
 
 const props = defineProps({
@@ -9,6 +9,7 @@ const props = defineProps({
   keywordTransform: { type: String, required: true },
   shuffleParagraphs: { type: Boolean, required: true },
   drafts: { type: Array, required: true }, // {title, body}
+  openFile: { type: Object, default: null }, // 外部要求打开的文件：{ path, n }
 })
 const emit = defineEmits([
   'update:titleTemplate',
@@ -65,6 +66,14 @@ const TOKEN_COLUMNS = [
 ]
 
 const activeTab = ref('template')
+
+// 外部要求打开某文件时，切到「文件库」标签（具体选中由 FileLibraryPanel 处理）。
+watch(
+  () => props.openFile,
+  (v) => {
+    if (v && v.path) activeTab.value = 'library'
+  },
+)
 const tabs = computed(() => [
   { key: 'template', label: '模板' },
   { key: 'library', label: '文件库' },
@@ -189,7 +198,7 @@ function summary(bodyText) {
 
     <!-- 文件库 -->
     <div v-else-if="activeTab === 'library'" class="page-body" style="padding: 0;">
-      <FileLibraryPanel @file-selected="emit('library-action', $event)" @open-dir="emit('open-dir')" />
+      <FileLibraryPanel :open-file="openFile" @file-selected="emit('library-action', $event)" @open-dir="emit('open-dir')" />
     </div>
 
     <!-- 预览 -->

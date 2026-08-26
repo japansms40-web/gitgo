@@ -1,7 +1,10 @@
 <script setup>
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, computed, watch } from 'vue'
 import { ListConfigTree, ReadConfigFile, WriteConfigFile } from '../../wailsjs/go/main/App'
 
+const props = defineProps({
+  openFile: { type: Object, default: null }, // 外部要求打开的文件：{ path, n }
+})
 const emit = defineEmits(['file-selected', 'open-dir'])
 
 const tree = ref([])
@@ -35,6 +38,32 @@ const visibleRows = computed(() => {
 onMounted(() => {
   loadFiles()
 })
+
+// 外部（如「查看链接」）要求打开某文件：刷新目录（新写入的文件才会出现），再选中并预览。
+// immediate：文件库是按需挂载的，点「查看链接」时它才刚挂载，需在挂载即按当前 openFile 执行。
+watch(
+  () => props.openFile,
+  async (v) => {
+    if (!v || !v.path) return
+    await loadFiles()
+    const node = findNode(tree.value, v.path)
+    if (node) await selectFile(node)
+    else errorMsg.value = `未找到文件：${v.path}`
+  },
+  { immediate: true },
+)
+
+// findNode 在目录树里按 path 找一个文件节点（深度优先，跳过目录）。
+function findNode(nodes, path) {
+  for (const node of nodes) {
+    if (!node.isDir && node.path === path) return node
+    if (node.isDir) {
+      const hit = findNode(node.children || [], path)
+      if (hit) return hit
+    }
+  }
+  return null
+}
 
 async function loadFiles() {
   loading.value = true

@@ -1,6 +1,6 @@
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
-import { TitleBar, NavRail, LogPanel, ResultsModal } from '@dongfang/df-ui-shell'
+import { TitleBar, NavRail, LogPanel } from '@dongfang/df-ui-shell'
 import ContentSettingsPage from './components/ContentSettingsPage.vue'
 import ContentParamsPanel from './components/ContentParamsPanel.vue'
 import PublishPage from './components/PublishPage.vue'
@@ -105,14 +105,11 @@ try {
 const proxyTesting = ref(false)
 const proxyTestResult = ref(null)
 
-// ---------- 发布链接（查看链接弹窗）----------
-const links = ref([]) // {time, repo, file, url}
-const showLinks = ref(false)
-const LINK_COLUMNS = [
-  { key: 'repo', label: '仓库', class: 'mono ellipsis' },
-  { key: 'file', label: '文件', class: 'ellipsis' },
-  { key: 'url', label: '链接', class: 'ellipsis mono' },
-]
+// ---------- 发布链接（输出到文件库 查看链接.txt）----------
+const LINKS_FILE = '查看链接.txt'
+const links = ref([]) // {repo, file, url}
+// openLibFile 是给文件库的「打开指定文件」信号：{ path, n }，n 变化即重新触发。
+const openLibFile = ref(null)
 
 function onSaveProxy() {
   localStorage.setItem(PROXY_KEY, JSON.stringify({ ...proxy }))
@@ -218,15 +215,16 @@ onMounted(async () => {
     a.fail = u.fail
     if (u.status === 'bad') a.bad = true
   })
-  // 发布成功一篇：收集链接供「查看链接」
+  // 发布成功一篇：收集链接，供「查看链接」输出到文件
   EventsOn('publish:link', (l) => {
-    links.value.push({ time: new Date().toTimeString().slice(0, 8), repo: l.repo, file: l.file, url: l.url })
-    if (links.value.length > 5000) links.value.shift()
+    links.value.push({ repo: l.repo, file: l.file, url: l.url })
+    if (links.value.length > 20000) links.value.shift()
   })
-  // 发布任务结束
-  EventsOn('publish:done', () => {
+  // 发布任务结束：把本次链接落盘到 查看链接.txt
+  EventsOn('publish:done', async () => {
     publishing.value = false
     persistAccounts()
+    if (links.value.length > 0) await App.WriteLinksFile(linksText())
     pushLog('info', '[信息]', `发布任务结束，共 ${links.value.length} 条链接`)
   })
 
@@ -494,19 +492,26 @@ function onAccountFeature() {
   pushLog('info', '[信息]', `已为 ${n} 个账号换号特征`)
 }
 
-// onViewLinks 打开「查看链接」弹窗，展示本次发布成功的所有 GitHub 文件链接。
-function onViewLinks() {
+// linksText 把本次发布链接拼成文本（每行一个 URL）。
+function linksText() {
+  return links.value.map((l) => l.url).join('\n') + '\n'
+}
+
+// onViewLinks 把本次发布链接写入素材目录的 查看链接.txt，然后跳到「内容设置 → 文件库」并打开它。
+async function onViewLinks() {
   if (links.value.length === 0) {
     pushLog('info', '[信息]', '暂无发布链接，先跑一次发布')
     return
   }
-  showLinks.value = true
-}
-
-// onCopyLinks 复制全部链接（每行一个 URL）到剪贴板。
-async function onCopyLinks() {
-  await App.CopyToClipboard(links.value.map((l) => l.url).join('\n'))
-  pushLog('info', '[信息]', `已复制 ${links.value.length} 条链接`)
+  const err = await App.WriteLinksFile(linksText())
+  if (err) {
+    showBanner(err)
+    return
+  }
+  page.value = 'content'
+  // 变更 n 触发文件库重新加载并选中该文件（Date.now 仅作触发用，不参与逻辑）
+  openLibFile.value = { path: LINKS_FILE, n: Date.now() }
+  pushLog('info', '[信息]', `已输出 ${links.value.length} 条链接到 ${LINKS_FILE}`)
 }
 
 function logText() {
@@ -570,6 +575,7 @@ function onClearLog() {
       />
       <ContentSettingsPage
         v-else
+        :open-file="openLibFile"
         v-model:title-template="form.titleTemplate"
         v-model:body-templates="form.bodyTemplates"
         v-model:keyword-order="opts.keywordOrder"
@@ -607,15 +613,6 @@ function onClearLog() {
       @copy="onCopyLog"
       @export="onExportLog"
       @clear="onClearLog"
-    />
-
-    <ResultsModal
-      v-if="showLinks"
-      title="发布链接"
-      :results="links"
-      :columns="LINK_COLUMNS"
-      @close="showLinks = false"
-      @copy-all="onCopyLinks"
     />
   </div>
 </template>

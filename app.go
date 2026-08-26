@@ -6,6 +6,7 @@ import (
 	"math/rand"
 	"os"
 	"os/exec"
+	"path/filepath"
 	stdruntime "runtime"
 	"strings"
 	"sync"
@@ -404,6 +405,23 @@ func (a *App) StopPublish() {
 		a.publishCancel()
 	}
 	a.publishMu.Unlock()
+}
+
+// LinksFileName 是「查看链接」输出到素材目录根下的文件名，与「外链库.txt」区分开。
+const LinksFileName = "查看链接.txt"
+
+// WriteLinksFile 把发布链接写入素材目录下的 查看链接.txt（不存在则创建）。
+// 供「查看链接」按钮先落盘、再在文件库里打开。返回错误文案或空串。
+func (a *App) WriteLinksFile(content string) string {
+	dir, err := a.contentDir() // contentDir 会 ensureLayout：目录不存在时先建
+	if err != nil {
+		return err.Error()
+	}
+	normalized := strings.ReplaceAll(content, "\r\n", "\n")
+	if err := os.WriteFile(filepath.Join(dir, LinksFileName), []byte(normalized), 0o644); err != nil {
+		return err.Error()
+	}
+	return ""
 }
 
 // wailsReporter 把 publish 引擎的进度转成 Wails 事件回前端。EventsEmit 并发安全。
