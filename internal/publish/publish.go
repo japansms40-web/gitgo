@@ -22,11 +22,13 @@ type Account struct {
 
 // Config 是本轮批量发布生效的核心配置。
 type Config struct {
-	Threads     int    // 线程数量（并发 worker 数）
-	IntervalSec int    // 每篇之间的间隔（秒）
-	PerAccount  int    // 每号发布次数（往同一仓库塞的文件数）
-	FailSwitch  int    // 累计失败达到此数就换号（停掉该账号剩余发布）
-	ProxyURL    string // 代理（启用时非空，空=直连）
+	Threads          int    // 线程数量（并发 worker 数）
+	IntervalSec      int    // 每篇之间的间隔（秒）
+	PerAccount       int    // 每号发布次数（往同一仓库塞的文件数）
+	FailSwitch       int    // 累计失败达到此数就换号（停掉该账号剩余发布）
+	Cycles           int    // 账号循环轮数（整个账号列表跑几遍）
+	RoundIntervalSec int    // 每轮之间的间隔（秒）
+	ProxyURL         string // 代理（启用时非空，空=直连）
 }
 
 // Reporter 把进度回报给上层。实现必须并发安全（多 worker 并发调用）。
@@ -56,16 +58,42 @@ func New(cfg Config, accounts []Account, lib contentgen.Library, genOpts content
 	if cfg.FailSwitch < 1 {
 		cfg.FailSwitch = 1
 	}
+	if cfg.Cycles < 1 {
+		cfg.Cycles = 1
+	}
 	return &Runner{cfg: cfg, accounts: accounts, lib: lib, genOpts: genOpts, report: report, seed: seed}
 }
 
-// Run 起 N 个 worker 并发消费账号，直到全部处理完或 ctx 取消。阻塞至结束。
+// Run 按「账号循环」跑多轮：每轮起 N 个 worker 并发消费一遍全部账号，轮间等待 RoundIntervalSec。
+// ctx 取消随时提前退出。阻塞至结束。
 func (r *Runner) Run(ctx context.Context) {
+	for round := 1; round <= r.cfg.Cycles; round++ {
+		if ctx.Err() != nil {
+			return
+		}
+		if r.cfg.Cycles > 1 {
+			r.report.Log("start", "[轮次]", fmt.Sprintf("第 %d/%d 轮开始", round, r.cfg.Cycles))
+		}
+		r.runRound(ctx, round)
+		if ctx.Err() != nil {
+			return
+		}
+		if round < r.cfg.Cycles {
+			r.report.Log("info", "[轮次]", fmt.Sprintf("第 %d 轮结束，等待 %d 秒后下一轮", round, r.cfg.RoundIntervalSec))
+			if !sleepCtx(ctx, time.Duration(r.cfg.RoundIntervalSec)*time.Second) {
+				return
+			}
+		}
+	}
+}
+
+// runRound 跑一轮：起 N 个 worker 并发消费全部账号，等这一轮收尾。
+func (r *Runner) runRound(ctx context.Context, round int) {
 	ch := make(chan Account)
 	var wg sync.WaitGroup
 	for w := 0; w < r.cfg.Threads; w++ {
 		wg.Add(1)
-		go r.worker(ctx, w, ch, &wg)
+		go r.worker(ctx, round, w, ch, &wg)
 	}
 	// 投递账号；ctx 取消或投递完即关闭 channel，worker range 自然退出。
 	go func() {
@@ -81,10 +109,11 @@ func (r *Runner) Run(ctx context.Context) {
 	wg.Wait()
 }
 
-// worker 从 channel 取账号处理，每 worker 一个独立随机源（避免共享 rnd 竞争）。
-func (r *Runner) worker(ctx context.Context, id int, ch <-chan Account, wg *sync.WaitGroup) {
+// worker 从 channel 取账号处理，每 (轮次,worker) 一个独立随机源：
+// 加 round 让每轮生成的内容不同，加 id 避免同轮 worker 间共享 rnd 竞争。
+func (r *Runner) worker(ctx context.Context, round, id int, ch <-chan Account, wg *sync.WaitGroup) {
 	defer wg.Done()
-	rnd := rand.New(rand.NewSource(r.seed + int64(id)*1_000_003 + 1))
+	rnd := rand.New(rand.NewSource(r.seed + int64(round)*1_000_000_007 + int64(id)*1_000_003 + 1))
 	for a := range ch {
 		select {
 		case <-ctx.Done():

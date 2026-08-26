@@ -338,6 +338,8 @@ async function onPublishAll() {
     interval: run.interval,
     perAccount: run.perAccount,
     failSwitch: run.failSwitch,
+    accountCycles: run.accountCycles,
+    roundInterval: run.roundInterval,
     proxyUrl: proxy.enabled ? proxy.url : '',
   }
   const payload = accounts.value.map((a) => ({ id: a.id, ck: a.ck }))

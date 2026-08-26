@@ -209,6 +209,8 @@ export namespace main {
 	    interval: number;
 	    perAccount: number;
 	    failSwitch: number;
+	    accountCycles: number;
+	    roundInterval: number;
 	    proxyUrl: string;
 	
 	    static createFrom(source: any = {}) {
@@ -221,6 +223,8 @@ export namespace main {
 	        this.interval = source["interval"];
 	        this.perAccount = source["perAccount"];
 	        this.failSwitch = source["failSwitch"];
+	        this.accountCycles = source["accountCycles"];
+	        this.roundInterval = source["roundInterval"];
 	        this.proxyUrl = source["proxyUrl"];
 	    }
 	}
