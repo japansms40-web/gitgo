@@ -154,6 +154,24 @@ export namespace contentgen {
 
 export namespace main {
 	
+	export class AccountCheckResult {
+	    ok: boolean;
+	    bad: boolean;
+	    repoCount: number;
+	    message: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new AccountCheckResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.ok = source["ok"];
+	        this.bad = source["bad"];
+	        this.repoCount = source["repoCount"];
+	        this.message = source["message"];
+	    }
+	}
 	export class ProxyTestResult {
 	    ok: boolean;
 	    message: string;
