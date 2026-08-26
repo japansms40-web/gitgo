@@ -58,6 +58,10 @@ export function SaveTextFile(arg1, arg2) {
   return window['go']['main']['App']['SaveTextFile'](arg1, arg2);
 }
 
+export function TestProxy(arg1) {
+  return window['go']['main']['App']['TestProxy'](arg1);
+}
+
 export function WriteConfigFile(arg1, arg2) {
   return window['go']['main']['App']['WriteConfigFile'](arg1, arg2);
 }

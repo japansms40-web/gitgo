@@ -4,9 +4,11 @@ import { TitleBar, NavRail, LogPanel } from '@dongfang/df-ui-shell'
 import ContentSettingsPage from './components/ContentSettingsPage.vue'
 import ContentParamsPanel from './components/ContentParamsPanel.vue'
 import PublishPage from './components/PublishPage.vue'
+import ProxyPage from './components/ProxyPage.vue'
 import HelpPage from './components/HelpPage.vue'
 import ContentIcon from './icons/ContentIcon.vue'
 import PublishIcon from './icons/PublishIcon.vue'
+import ProxyIcon from './icons/ProxyIcon.vue'
 import HelpIcon from './icons/HelpIcon.vue'
 import * as App from '../wailsjs/go/main/App'
 import { EventsOn, WindowMinimise, WindowToggleMaximise, Quit } from '../wailsjs/runtime/runtime'
@@ -15,8 +17,9 @@ const APP_VERSION = 'v1.0.0'
 const APP_NAME = 'Git MD'
 
 const NAV_ITEMS = [
-  { key: 'content', cn: '内容设置', en: 'CONTENT', icon: ContentIcon },
   { key: 'publish', cn: '发布', en: 'PUBLISH', icon: PublishIcon },
+  { key: 'content', cn: '内容设置', en: 'CONTENT', icon: ContentIcon },
+  { key: 'proxy', cn: '代理', en: 'PROXY', icon: ProxyIcon },
 ]
 const NAV_BOTTOM_ITEMS = [{ key: 'help', cn: '使用说明', en: 'HELP', icon: HelpIcon }]
 
@@ -89,6 +92,37 @@ try {
 }
 
 const STATUS_CN = { pending: '待发', publishing: '发布中', success: '成功', failed: '失败', bad: '坏号' }
+
+// ---------- 代理设置（单个全局代理，落盘 localStorage）----------
+const PROXY_KEY = 'gitmd.proxy'
+const proxy = reactive({ enabled: false, url: '' })
+try {
+  const saved = JSON.parse(localStorage.getItem(PROXY_KEY) || 'null')
+  if (saved && typeof saved === 'object') Object.assign(proxy, saved)
+} catch {
+  /* 忽略损坏的本地代理配置 */
+}
+const proxyTesting = ref(false)
+const proxyTestResult = ref(null)
+
+function onSaveProxy() {
+  localStorage.setItem(PROXY_KEY, JSON.stringify({ ...proxy }))
+  pushLog('info', '[信息]', proxy.enabled ? `代理已保存并启用：${proxy.url || '(空)'}` : '代理已保存（未启用）')
+}
+
+// onTestProxy 走 Go 侧 TestProxy 真拨测 github.com。
+async function onTestProxy() {
+  if (proxyTesting.value) return
+  proxyTesting.value = true
+  proxyTestResult.value = null
+  try {
+    proxyTestResult.value = await App.TestProxy(proxy.url)
+  } catch (e) {
+    proxyTestResult.value = { ok: false, message: '拨测异常：' + String(e) }
+  } finally {
+    proxyTesting.value = false
+  }
+}
 
 const publishing = ref(false)
 
@@ -459,6 +493,15 @@ function onClearLog() {
       <NavRail :page="page" :items="NAV_ITEMS" :bottom-items="NAV_BOTTOM_ITEMS" @navigate="(p) => (page = p)" />
 
       <HelpPage v-if="page === 'help'" />
+      <ProxyPage
+        v-else-if="page === 'proxy'"
+        v-model:url="proxy.url"
+        v-model:enabled="proxy.enabled"
+        :testing="proxyTesting"
+        :test-result="proxyTestResult"
+        @test="onTestProxy"
+        @save="onSaveProxy"
+      />
       <PublishPage
         v-else-if="page === 'publish'"
         :accounts="accounts"

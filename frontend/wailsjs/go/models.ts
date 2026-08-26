@@ -152,3 +152,26 @@ export namespace contentgen {
 
 }
 
+export namespace main {
+	
+	export class ProxyTestResult {
+	    ok: boolean;
+	    message: string;
+	    statusCode: number;
+	    latencyMs: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new ProxyTestResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.ok = source["ok"];
+	        this.message = source["message"];
+	        this.statusCode = source["statusCode"];
+	        this.latencyMs = source["latencyMs"];
+	    }
+	}
+
+}
+
