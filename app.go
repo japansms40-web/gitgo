@@ -47,6 +47,9 @@ type App struct {
 
 	// 日志落盘串行化（多 worker 并发写同一天的日志文件）。
 	logMu sync.Mutex
+
+	// 写 查看链接.txt 串行化（发布结束自动落盘可能与点击「查看链接」并发）。
+	linksMu sync.Mutex
 }
 
 func NewApp() *App { return &App{} }
@@ -421,6 +424,9 @@ func (a *App) WriteLinksFile(content string) string {
 		return err.Error()
 	}
 	normalized := strings.ReplaceAll(content, "\r\n", "\n")
+
+	a.linksMu.Lock()
+	defer a.linksMu.Unlock()
 	if err := os.WriteFile(filepath.Join(dir, LinksFileName), []byte(normalized), 0o644); err != nil {
 		return err.Error()
 	}
@@ -435,6 +441,9 @@ func (a *App) EnsureLinksFile() string {
 		return err.Error()
 	}
 	p := filepath.Join(dir, LinksFileName)
+
+	a.linksMu.Lock()
+	defer a.linksMu.Unlock()
 	if _, err := os.Stat(p); err == nil {
 		return "" // 已存在，保留内容
 	}
