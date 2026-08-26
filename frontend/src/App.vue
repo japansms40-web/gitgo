@@ -409,14 +409,31 @@ async function onCopyCk(a) {
   pushLog('info', '[信息]', '已复制 CK')
 }
 
+// onTestAccount 真实验活：用账号 CK + 保存的代理调 Go 侧 CheckAccount（走真实 ListRepos）。
 async function onTestAccount(a) {
   if (working.value) return
   publishing.value = true
+  const prev = a.status
   try {
-    pushLog('start', '[开始]', `单独测试 ${shortCk(a.ck)}（模拟）`)
-    await publishOne(a)
-    pushLog(a.status === 'success' ? 'success' : 'failure', '[结果]', `${shortCk(a.ck)} → ${STATUS_CN[a.status] ?? a.status}`)
+    pushLog('start', '[开始]', `验活 ${shortCk(a.ck)}${proxy.enabled ? ' · 走代理' : ''}`)
+    a.status = 'publishing'
+    const res = await App.CheckAccount(a.ck, proxy.enabled ? proxy.url : '')
+    if (res.ok) {
+      a.status = 'success'
+      a.bad = false
+      pushLog('success', '[活号]', `${shortCk(a.ck)} · 仓库 ${res.repoCount} 个`)
+    } else if (res.bad) {
+      a.status = 'bad'
+      a.bad = true
+      pushLog('failure', '[坏号]', `${shortCk(a.ck)} · ${res.message}`)
+    } else {
+      a.status = prev === 'publishing' ? 'pending' : prev
+      pushLog('failure', '[失败]', `${shortCk(a.ck)} · ${res.message}`)
+    }
     persistAccounts()
+  } catch (e) {
+    a.status = prev === 'publishing' ? 'pending' : prev
+    pushLog('failure', '[失败]', `${shortCk(a.ck)} · ${String(e)}`)
   } finally {
     publishing.value = false
   }

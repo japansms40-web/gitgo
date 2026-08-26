@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	stdruntime "runtime"
+	"strings"
 	"time"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
@@ -15,6 +16,7 @@ import (
 	"gitmd/internal/configdir"
 	"gitmd/internal/contentgen"
 	"gitmd/internal/contentstore"
+	"gitmd/internal/github"
 	"gitmd/internal/proxycheck"
 )
 
@@ -241,6 +243,46 @@ func (a *App) TestProxy(proxyURL string) ProxyTestResult {
 		LatencyMs:  ms,
 		Message:    fmt.Sprintf("连通 · HTTP %d · %d ms", res.StatusCode, ms),
 	}
+}
+
+// AccountCheckResult 是账号验活结果，回给前端。
+type AccountCheckResult struct {
+	Ok        bool   `json:"ok"`        // 活号且请求成功
+	Bad       bool   `json:"bad"`       // 明确坏号（鉴权失败 401/403）
+	RepoCount int    `json:"repoCount"` // 活号时的仓库数
+	Message   string `json:"message"`   // 展示文案
+}
+
+// CheckAccount 用账号 CK（整串会话 Cookie）+ 给定代理，真实调 GitHub ListRepos 验活。
+// proxyURL 空串表示直连。成功=活号并回显仓库数；401/403=坏号；其它错误=失败（可能是代理/网络）。
+func (a *App) CheckAccount(ck, proxyURL string) AccountCheckResult {
+	ck = strings.TrimSpace(ck)
+	if ck == "" {
+		return AccountCheckResult{Message: "CK 为空"}
+	}
+
+	c, err := github.New(ck, github.WithProxy(proxyURL))
+	if err != nil {
+		return AccountCheckResult{Message: "构造客户端失败：" + err.Error()}
+	}
+
+	resp, err := c.ListRepos(a.ctx, 1)
+	repoCount := 0
+	if resp != nil {
+		repoCount = resp.Payload.ReposFinderPageRoute.RepositoryCount
+	}
+	return accountVerdict(repoCount, c.LastStatusCode(), err)
+}
+
+// accountVerdict 把 ListRepos 的结果归类为 活号/坏号/失败（纯函数，便于单测）。
+func accountVerdict(repoCount, statusCode int, err error) AccountCheckResult {
+	if err == nil {
+		return AccountCheckResult{Ok: true, RepoCount: repoCount, Message: fmt.Sprintf("活号 · 仓库 %d 个", repoCount)}
+	}
+	if statusCode == 401 || statusCode == 403 {
+		return AccountCheckResult{Bad: true, Message: fmt.Sprintf("坏号 · HTTP %d", statusCode)}
+	}
+	return AccountCheckResult{Message: "失败：" + err.Error()}
 }
 
 // ---------- 通用工具 ----------

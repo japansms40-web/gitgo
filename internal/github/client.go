@@ -21,6 +21,12 @@ type Client struct {
 	http *httpx.Client
 }
 
+// LastStatusCode 返回本客户端最近一次请求的响应状态码（0 表示尚无响应，如网络层失败）。
+// 用于调用方按状态码分类（如账号验活时 401/403 判坏号）。
+func (c *Client) LastStatusCode() int {
+	return c.http.SnapshotResponseStatusCode()
+}
+
 // Option 调整客户端构造参数（函数式选项，便于后续加代理/超时等而不破坏 New 签名）。
 type Option func(*httpclient.Config)
 
