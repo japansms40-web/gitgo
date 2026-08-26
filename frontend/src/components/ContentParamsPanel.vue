@@ -107,8 +107,8 @@ const emit = defineEmits([
 
     <div class="spacer" />
 
-    <button class="btn-primary btn-tall" :disabled="working" @click="emit('start-work')">
-      {{ working ? '工作中…' : '开始工作' }}
+    <button class="btn-primary btn-tall" @click="emit('start-work')">
+      {{ working ? '停止工作' : '开始工作' }}
     </button>
   </div>
 </template>

@@ -190,6 +190,40 @@ export namespace main {
 	        this.latencyMs = source["latencyMs"];
 	    }
 	}
+	export class PublishAccount {
+	    id: number;
+	    ck: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new PublishAccount(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.ck = source["ck"];
+	    }
+	}
+	export class PublishConfig {
+	    threads: number;
+	    interval: number;
+	    perAccount: number;
+	    failSwitch: number;
+	    proxyUrl: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new PublishConfig(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.threads = source["threads"];
+	        this.interval = source["interval"];
+	        this.perAccount = source["perAccount"];
+	        this.failSwitch = source["failSwitch"];
+	        this.proxyUrl = source["proxyUrl"];
+	    }
+	}
 
 }
 

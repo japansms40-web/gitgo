@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	stdruntime "runtime"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
@@ -18,6 +19,7 @@ import (
 	"gitmd/internal/contentstore"
 	"gitmd/internal/github"
 	"gitmd/internal/proxycheck"
+	"gitmd/internal/publish"
 )
 
 // eventLog 是推给前端日志面板的一行运行日志。
@@ -36,6 +38,11 @@ type LogLine struct {
 // 接到前端；本身只做编排，不实现生成规则。
 type App struct {
 	ctx context.Context
+
+	// 批量发布任务的生命周期：StartPublish 起、StopPublish 取消。
+	publishMu     sync.Mutex
+	publishing    bool
+	publishCancel context.CancelFunc
 }
 
 func NewApp() *App { return &App{} }
@@ -283,6 +290,122 @@ func accountVerdict(repoCount, statusCode int, err error) AccountCheckResult {
 		return AccountCheckResult{Bad: true, Message: fmt.Sprintf("坏号 · HTTP %d", statusCode)}
 	}
 	return AccountCheckResult{Message: "失败：" + err.Error()}
+}
+
+// ---------- 批量发布 ----------
+
+// PublishAccount 是前端传入的一个待发布账号。
+type PublishAccount struct {
+	ID int    `json:"id"`
+	CK string `json:"ck"`
+}
+
+// PublishConfig 是前端传入的发布配置（本轮生效的核心参数）。
+type PublishConfig struct {
+	Threads    int    `json:"threads"`    // 线程数量
+	Interval   int    `json:"interval"`   // 发布间隔（秒）
+	PerAccount int    `json:"perAccount"` // 每号发布次数
+	FailSwitch int    `json:"failSwitch"` // 失败换号
+	ProxyURL   string `json:"proxyUrl"`   // 代理（启用时非空）
+}
+
+// PublishAccountUpdate 是发布过程中回给前端的账号状态更新（经 publish:account 事件）。
+type PublishAccountUpdate struct {
+	ID      int    `json:"id"`
+	Status  string `json:"status"`
+	Success int    `json:"success"`
+	Fail    int    `json:"fail"`
+}
+
+// 发布事件名。
+const (
+	eventPublishAccount = "publish:account" // 单账号状态更新
+	eventPublishDone    = "publish:done"    // 整个任务结束
+)
+
+// StartPublish 启动一次批量发布：加载素材库 → 起 worker-pool 引擎（在后台协程跑），
+// 进度经事件回前端。立即返回；出错返回错误文案，成功返回空串。
+func (a *App) StartPublish(accounts []PublishAccount, cfg PublishConfig, genOpts contentgen.Options) string {
+	a.publishMu.Lock()
+	if a.publishing {
+		a.publishMu.Unlock()
+		return "已有发布任务在运行"
+	}
+
+	dir, err := contentstore.DefaultDir()
+	if err != nil {
+		a.publishMu.Unlock()
+		return err.Error()
+	}
+	lib, err := contentstore.Load(dir)
+	if err != nil {
+		a.publishMu.Unlock()
+		return err.Error()
+	}
+
+	accs := make([]publish.Account, 0, len(accounts))
+	for _, x := range accounts {
+		ck := strings.TrimSpace(x.CK)
+		if ck == "" {
+			continue
+		}
+		accs = append(accs, publish.Account{ID: x.ID, CK: ck})
+	}
+	if len(accs) == 0 {
+		a.publishMu.Unlock()
+		return "没有可发布的账号"
+	}
+
+	ctx, cancel := context.WithCancel(a.ctx)
+	a.publishCancel = cancel
+	a.publishing = true
+	a.publishMu.Unlock()
+
+	runner := publish.New(publish.Config{
+		Threads:     cfg.Threads,
+		IntervalSec: cfg.Interval,
+		PerAccount:  cfg.PerAccount,
+		FailSwitch:  cfg.FailSwitch,
+		ProxyURL:    cfg.ProxyURL,
+	}, accs, lib, genOpts, wailsReporter{a: a}, time.Now().UnixNano())
+
+	a.emitInfo(fmt.Sprintf("开始发布：账号 %d 个 · 线程 %d · 每号 %d 篇", len(accs), cfg.Threads, cfg.PerAccount))
+
+	go func() {
+		defer func() {
+			a.publishMu.Lock()
+			a.publishing = false
+			a.publishCancel = nil
+			a.publishMu.Unlock()
+			runtime.EventsEmit(a.ctx, eventPublishDone, nil)
+		}()
+		runner.Run(ctx)
+	}()
+	return ""
+}
+
+// StopPublish 取消正在运行的发布任务；无任务时为 no-op。
+func (a *App) StopPublish() {
+	a.publishMu.Lock()
+	if a.publishCancel != nil {
+		a.publishCancel()
+	}
+	a.publishMu.Unlock()
+}
+
+// wailsReporter 把 publish 引擎的进度转成 Wails 事件回前端。EventsEmit 并发安全。
+type wailsReporter struct{ a *App }
+
+func (r wailsReporter) Log(kind, tag, msg string) {
+	runtime.EventsEmit(r.a.ctx, eventLog, LogLine{
+		Time: time.Now().Format("15:04:05"), Tag: tag, Kind: kind, Msg: msg,
+	})
+}
+
+func (r wailsReporter) Account(id int, status string, success, fail int) {
+	runtime.EventsEmit(r.a.ctx, eventPublishAccount, PublishAccountUpdate{
+		ID: id, Status: status, Success: success, Fail: fail,
+	})
 }
 
 // ---------- 通用工具 ----------
