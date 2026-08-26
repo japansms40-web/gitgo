@@ -226,6 +226,35 @@ func (a *App) CopyToClipboard(text string) string {
 	return ""
 }
 
+// ClipboardGetText 读取系统剪贴板里的纯文本，供发布页「双击粘贴剪贴板」批量导入账号。
+// 读不到内容时返回空字符串。
+func (a *App) ClipboardGetText() string {
+	text, err := runtime.ClipboardGetText(a.ctx)
+	if err != nil {
+		return ""
+	}
+	return text
+}
+
+// SaveTextFile 弹出保存框，把一段纯文本写入用户选择的文件，供发布页「导出结果」使用。
+// 用户取消或成功都返回空字符串，出错时返回错误文案。
+func (a *App) SaveTextFile(defaultName, text string) string {
+	path, err := runtime.SaveFileDialog(a.ctx, runtime.SaveDialogOptions{
+		Title: "导出结果", DefaultFilename: defaultName,
+	})
+	if err != nil {
+		return err.Error()
+	}
+	if path == "" {
+		return ""
+	}
+	if err := os.WriteFile(path, []byte(text), 0o644); err != nil {
+		return err.Error()
+	}
+	a.emitInfo("已导出到 " + path)
+	return ""
+}
+
 // ExportLog 弹出保存框，把前端已渲染的日志纯文本写入用户选择的文件。
 func (a *App) ExportLog(text string) string {
 	path, err := runtime.SaveFileDialog(a.ctx, runtime.SaveDialogOptions{

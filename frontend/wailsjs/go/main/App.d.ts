@@ -3,6 +3,8 @@
 import {contentgen} from '../models';
 import {configdir} from '../models';
 
+export function ClipboardGetText():Promise<string>;
+
 export function CopyToClipboard(arg1:string):Promise<string>;
 
 export function ExportDrafts(arg1:Array<contentgen.Draft>):Promise<string>;
@@ -26,5 +28,7 @@ export function ReadConfigFile(arg1:string):Promise<configdir.FilePreview>;
 export function SaveConfig(arg1:contentgen.Options):Promise<string>;
 
 export function SaveTemplates(arg1:string,arg2:Array<string>):Promise<string>;
+
+export function SaveTextFile(arg1:string,arg2:string):Promise<string>;
 
 export function WriteConfigFile(arg1:string,arg2:string):Promise<string>;
