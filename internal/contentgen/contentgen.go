@@ -23,7 +23,7 @@ const VarBankCount = 5
 const BodyTemplateCount = 2
 
 // MaxCount 是单次生成的篇数上限，防止手滑输入超大数字卡死界面。
-const MaxCount = 500
+const MaxCount = 50000
 
 // maxRandomLen 是 {英文=N} 这类随机串的长度上限。
 const maxRandomLen = 64
