@@ -34,6 +34,10 @@ export function SaveTemplates(arg1:string,arg2:Array<string>):Promise<string>;
 
 export function SaveTextFile(arg1:string,arg2:string):Promise<string>;
 
+export function StartPublish(arg1:Array<main.PublishAccount>,arg2:main.PublishConfig,arg3:contentgen.Options):Promise<string>;
+
+export function StopPublish():Promise<void>;
+
 export function TestProxy(arg1:string):Promise<main.ProxyTestResult>;
 
 export function WriteConfigFile(arg1:string,arg2:string):Promise<string>;

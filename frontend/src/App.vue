@@ -200,6 +200,22 @@ onMounted(async () => {
     if (logs.value.length > 1000) logs.value.shift()
   })
 
+  // 发布进度：单账号状态更新
+  EventsOn('publish:account', (u) => {
+    const a = accounts.value.find((x) => x.id === u.id)
+    if (!a) return
+    a.status = u.status
+    a.success = u.success
+    a.fail = u.fail
+    if (u.status === 'bad') a.bad = true
+  })
+  // 发布任务结束
+  EventsOn('publish:done', () => {
+    publishing.value = false
+    persistAccounts()
+    pushLog('info', '[信息]', '发布任务结束')
+  })
+
   Object.assign(opts, await App.LoadConfig())
   try {
     const lib = await App.LoadContent()
@@ -278,14 +294,23 @@ async function onSaveConfig() {
   pushLog('info', '[信息]', '配置已保存')
 }
 
-// 开始工作：发布页触发发布，其它页触发内容生成。
+// 开始工作：发布页触发/停止真实发布，其它页触发内容生成。
 function onStartWork() {
-  if (page.value === 'publish') onPublishAll()
-  else onGenerate()
+  if (page.value === 'publish') {
+    if (publishing.value) onStopPublish()
+    else onPublishAll()
+  } else {
+    if (!generating.value) onGenerate()
+  }
 }
 
-// ---------- 发布模拟 ----------
-// 目前没有真实发布后端，这里按参数模拟状态流转，方便演示与联调 UI。
+// onStopPublish 请求后端取消发布任务。
+async function onStopPublish() {
+  await App.StopPublish()
+  pushLog('retry', '[提示]', '正在停止发布…')
+}
+
+// ---------- 账号特征（换号特征用）----------
 
 const UA_POOL = ['Chrome/126 Win10', 'Chrome/125 Win11', 'Edge/126 Win10', 'Firefox/128 Win10', 'Chrome/124 Win10']
 function randUA() {
@@ -295,55 +320,37 @@ function randIP() {
   const o = () => Math.floor(Math.random() * 254) + 1
   return `${o()}.${o()}.${o()}.${o()}`
 }
-function sleep(ms) {
-  return new Promise((r) => setTimeout(r, ms))
-}
 
-// publishOne 对单个账号跑一遍发布：补特征 → 发布中 → 按「每号发布」次数累加成功/失败。
-// 演示上限 3 次，避免默认的 1000 次把界面卡死；每次按「发布间隔」秒节流。
-async function publishOne(a) {
-  if (a.bad || a.status === 'bad') return
-  if (!a.ua) a.ua = randUA()
-  if (!a.ip) a.ip = randIP()
-  a.status = 'publishing'
-  const attempts = Math.min(Math.max(run.perAccount, 1), 3)
-  let lastOk = false
-  for (let i = 0; i < attempts; i++) {
-    await sleep(Math.max(run.interval, 0) * 1000 || 200)
-    lastOk = Math.random() < 0.78
-    if (lastOk) a.success++
-    else a.fail++
-    a.total++
-  }
-  a.status = lastOk ? 'success' : 'failed'
-}
-
-// onPublishAll 用线程数量控制并发，逐个消费待发账号。
+// onPublishAll 启动真实批量发布：账号 + 配置 + 内容选项交给后端 worker-pool 引擎，
+// 进度经 publish:account / publish:done 事件回写。StartPublish 立即返回，任务在后台跑。
 async function onPublishAll() {
-  if (working.value) return
-  const pending = accounts.value.filter((a) => a.status === 'pending' && !a.bad)
-  if (pending.length === 0) {
-    pushLog('info', '[信息]', '没有待发账号')
+  if (publishing.value) return
+  const targets = accounts.value.filter((a) => a.ck && !a.bad)
+  if (targets.length === 0) {
+    pushLog('info', '[信息]', '没有可发布的账号')
     return
   }
+  // 先把模板落盘，保证后端读到最新内容
+  if (!(await saveTemplates())) return
   publishing.value = true
-  pushLog('start', '[开始]', `开始发布，待发 ${pending.length} 个 · 线程 ${run.threads}（模拟）`)
+  const cfg = {
+    threads: run.threads,
+    interval: run.interval,
+    perAccount: run.perAccount,
+    failSwitch: run.failSwitch,
+    proxyUrl: proxy.enabled ? proxy.url : '',
+  }
+  const payload = accounts.value.map((a) => ({ id: a.id, ck: a.ck }))
   try {
-    let idx = 0
-    const worker = async () => {
-      while (idx < pending.length) {
-        const a = pending[idx++]
-        await publishOne(a)
-        pushLog(a.status === 'success' ? 'success' : 'failure', a.status === 'success' ? '[成功]' : '[失败]', shortCk(a.ck))
-      }
+    const err = await App.StartPublish(payload, cfg, { ...opts })
+    if (err) {
+      publishing.value = false
+      showBanner(err)
+      pushLog('failure', '[失败]', err)
     }
-    const n = Math.min(Math.max(run.threads, 1), pending.length)
-    await Promise.all(Array.from({ length: n }, worker))
-    const ok = pending.filter((a) => a.status === 'success').length
-    pushLog('info', '[信息]', `发布完成：成功 ${ok}，失败 ${pending.length - ok}`)
-    persistAccounts()
-  } finally {
+  } catch (e) {
     publishing.value = false
+    showBanner(String(e))
   }
 }
 

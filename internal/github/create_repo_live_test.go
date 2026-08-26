@@ -4,22 +4,10 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"regexp"
 	"strings"
 	"testing"
 	"time"
 )
-
-var dotcomUserRe = regexp.MustCompile(`dotcom_user=([^;]+)`)
-
-// ownerFromCookie 从会话 Cookie 串里取 dotcom_user 作为 owner；取不到返回空。
-func ownerFromCookie(cookie string) string {
-	m := dotcomUserRe.FindStringSubmatch(cookie)
-	if len(m) == 2 {
-		return m[1]
-	}
-	return ""
-}
 
 // TestCreateRepo_Live 真实新建一个仓库——【写操作】，双重开关守卫：
 //   - 需 GH_TEST_COOKIE
@@ -41,7 +29,7 @@ func TestCreateRepo_Live(t *testing.T) {
 
 	owner := os.Getenv("GH_TEST_OWNER")
 	if owner == "" {
-		owner = ownerFromCookie(cookie)
+		owner = OwnerFromCookie(cookie)
 	}
 	if owner == "" {
 		t.Skip("无法确定 owner：设 GH_TEST_OWNER 或让 Cookie 带 dotcom_user")

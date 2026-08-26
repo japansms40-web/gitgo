@@ -62,6 +62,14 @@ export function SaveTextFile(arg1, arg2) {
   return window['go']['main']['App']['SaveTextFile'](arg1, arg2);
 }
 
+export function StartPublish(arg1, arg2, arg3) {
+  return window['go']['main']['App']['StartPublish'](arg1, arg2, arg3);
+}
+
+export function StopPublish() {
+  return window['go']['main']['App']['StopPublish']();
+}
+
 export function TestProxy(arg1) {
   return window['go']['main']['App']['TestProxy'](arg1);
 }

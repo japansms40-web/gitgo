@@ -26,7 +26,7 @@ func TestCreateRepoWithFile_Live(t *testing.T) {
 	cookie := testCookie(t)
 	owner := os.Getenv("GH_TEST_OWNER")
 	if owner == "" {
-		owner = ownerFromCookie(cookie)
+		owner = OwnerFromCookie(cookie)
 	}
 	if owner == "" {
 		t.Skip("无法确定 owner：设 GH_TEST_OWNER 或让 Cookie 带 dotcom_user")
