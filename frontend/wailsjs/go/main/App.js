@@ -77,3 +77,7 @@ export function TestProxy(arg1) {
 export function WriteConfigFile(arg1, arg2) {
   return window['go']['main']['App']['WriteConfigFile'](arg1, arg2);
 }
+
+export function WriteLinksFile(arg1) {
+  return window['go']['main']['App']['WriteLinksFile'](arg1);
+}
