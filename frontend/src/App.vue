@@ -1,6 +1,7 @@
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
-import { TitleBar, NavRail, LogPanel } from '@dongfang/df-ui-shell'
+import { TitleBar, NavRail } from '@dongfang/df-ui-shell'
+import LogPanel from './components/LogPanel.vue'
 import ContentSettingsPage from './components/ContentSettingsPage.vue'
 import ContentParamsPanel from './components/ContentParamsPanel.vue'
 import PublishPage from './components/PublishPage.vue'
@@ -183,6 +184,14 @@ function showBanner(msg) {
 function pushLog(kind, tag, msg) {
   logs.value.push({ time: new Date().toTimeString().slice(0, 8), tag, kind, msg, highlight: false })
   if (logs.value.length > 1000) logs.value.shift()
+  // 前端产生的日志也落盘到当天日志文件（后端日志由后端直接写，不经这里，避免重复）
+  App.AppendLog(tag, msg)
+}
+
+// onViewLogs 打开本地日志目录（按日期分文件），供直接查看日志文件。
+async function onViewLogs() {
+  const err = await App.OpenLogsDir()
+  if (err) showBanner(err)
 }
 
 // working 汇总两种忙碌态，供右侧参数面板禁用「开始工作」按钮。
@@ -612,6 +621,7 @@ function onClearLog() {
       @copy="onCopyLog"
       @export="onExportLog"
       @clear="onClearLog"
+      @view-logs="onViewLogs"
     />
   </div>
 </template>
