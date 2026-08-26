@@ -33,13 +33,16 @@ func TestLoadSeedsExamplesWhenMissing(t *testing.T) {
 	if len(lib.Keywords) == 0 {
 		t.Error("首次运行应写入示例关键词")
 	}
+	if len(lib.URLs) == 0 {
+		t.Error("首次运行应写入示例外链库")
+	}
 	if len(lib.Vars) != contentgen.VarBankCount {
 		t.Fatalf("变量库应有 %d 组，实际 %d 组", contentgen.VarBankCount, len(lib.Vars))
 	}
 
 	// 文件确实落到了磁盘上，用户能直接用文本编辑器打开。
 	for _, path := range []string{
-		filepath.Join(dir, titleFile), filepath.Join(dir, keywordsFile),
+		filepath.Join(dir, titleFile), filepath.Join(dir, keywordsFile), filepath.Join(dir, urlsFile),
 		bodyPath(dir, 0), bodyPath(dir, 1),
 	} {
 		if _, err := os.Stat(path); err != nil {
@@ -151,6 +154,7 @@ func TestSaveTemplatesKeepsDataFiles(t *testing.T) {
 		BodyTemplates: []string{"旧正文A", "旧正文B"},
 		Keywords:      []string{"关键词甲", "关键词乙"},
 		Images:        []string{"图一"},
+		URLs:          []string{"http://链接甲"},
 		Vars:          make([][]string, contentgen.VarBankCount),
 	}
 	full.Vars[0] = []string{"变量甲"}
@@ -176,6 +180,9 @@ func TestSaveTemplatesKeepsDataFiles(t *testing.T) {
 	}
 	if strings.Join(got.Images, ",") != "图一" {
 		t.Errorf("SaveTemplates 不应动图片库，得到 %v", got.Images)
+	}
+	if strings.Join(got.URLs, ",") != "http://链接甲" {
+		t.Errorf("SaveTemplates 不应动外链库，得到 %v", got.URLs)
 	}
 	if strings.Join(got.Vars[0], ",") != "变量甲" {
 		t.Errorf("SaveTemplates 不应动变量库，得到 %v", got.Vars[0])
@@ -251,6 +258,22 @@ func TestSaveLoadImageBank(t *testing.T) {
 	}
 	if strings.Join(lib.Images, "|") != strings.Join(want, "|") {
 		t.Errorf("图片库 = %v，期望 %v", lib.Images, want)
+	}
+}
+
+func TestSaveLoadURLBank(t *testing.T) {
+	dir := t.TempDir()
+	want := []string{"http://squid065.gonglir.cn", "http://swan402.gonglir.cn"}
+
+	if err := Save(dir, contentgen.Library{URLs: want}); err != nil {
+		t.Fatalf("Save 返回错误: %v", err)
+	}
+	lib, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load 返回错误: %v", err)
+	}
+	if strings.Join(lib.URLs, "|") != strings.Join(want, "|") {
+		t.Errorf("外链库 = %v，期望 %v", lib.URLs, want)
 	}
 }
 
@@ -433,6 +456,50 @@ func TestEndToEndSaveGenerateExport(t *testing.T) {
 	}
 	if got := string(b); !strings.HasPrefix(got, "# 绿茶测评\n\n") || !strings.Contains(got, "绿茶的要点：") {
 		t.Errorf("导出内容不符合预期: %q", got)
+	}
+}
+
+// TestEndToEndDigestWithLoopAndLinks 走一遍"摘要文档"的真实流程：
+// 一个含 {循环=N} 和 {顺序外链} 的正文模板，一篇里产出 N 条、来源 URL 按序轮转。
+func TestEndToEndDigestWithLoopAndLinks(t *testing.T) {
+	contentDir := filepath.Join(t.TempDir(), "content")
+
+	err := Save(contentDir, contentgen.Library{
+		TitleTemplate: "快报",
+		BodyTemplates: []string{"{循环=40}<h3>{变量1}</h3><p>{变量2}<br>来源：{顺序外链}</p>{/循环}"},
+		Vars:          [][]string{{"标题词"}, {"正文词"}},
+		URLs:          []string{"http://u0", "http://u1", "http://u2"},
+	})
+	if err != nil {
+		t.Fatalf("Save 返回错误: %v", err)
+	}
+
+	lib, err := Load(contentDir)
+	if err != nil {
+		t.Fatalf("Load 返回错误: %v", err)
+	}
+	now := time.Date(2026, 8, 25, 17, 42, 0, 0, time.UTC)
+	drafts, err := contentgen.Generate(lib, contentgen.Options{Count: 1}, rand.New(rand.NewSource(1)), now)
+	if err != nil {
+		t.Fatalf("Generate 返回错误: %v", err)
+	}
+
+	body := drafts[0].Body
+	if n := strings.Count(body, "<h3>"); n != 40 {
+		t.Errorf("循环应产出 40 条 <h3>，实际 %d 条", n)
+	}
+	// 3 条 URL 顺序轮转 40 次：u0 落在 0,3,…,39 共 14 次，u1/u2 各 13 次。
+	if c := strings.Count(body, "http://u0"); c != 14 {
+		t.Errorf("顺序外链 u0 应出现 14 次，实际 %d 次", c)
+	}
+	if c := strings.Count(body, "http://u1"); c != 13 {
+		t.Errorf("顺序外链 u1 应出现 13 次，实际 %d 次", c)
+	}
+	if c := strings.Count(body, "http://u2"); c != 13 {
+		t.Errorf("顺序外链 u2 应出现 13 次，实际 %d 次", c)
+	}
+	if strings.Contains(body, "{") {
+		t.Errorf("正文里还有没替换的占位符: %q", body[:min(len(body), 120)])
 	}
 }
 

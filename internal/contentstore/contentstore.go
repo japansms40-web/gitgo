@@ -28,6 +28,7 @@ const (
 	titleFile    = "标题模板.txt"
 	keywordsFile = "关键词.txt"
 	imagesFile   = "图片库.txt"
+	urlsFile     = "外链库.txt"
 	varsDir      = "变量"
 	articlesDir  = "文章库"
 )
@@ -82,6 +83,12 @@ func Load(dir string) (contentgen.Library, error) {
 	}
 	lib.Images = splitLines(images)
 
+	urls, err := readText(filepath.Join(dir, urlsFile))
+	if err != nil {
+		return lib, err
+	}
+	lib.URLs = splitLines(urls)
+
 	if lib.Articles, err = loadArticles(filepath.Join(dir, articlesDir)); err != nil {
 		return lib, err
 	}
@@ -119,6 +126,9 @@ func Save(dir string, lib contentgen.Library) error {
 		return err
 	}
 	if err := os.WriteFile(filepath.Join(dir, imagesFile), []byte(strings.Join(lib.Images, "\n")), 0o644); err != nil {
+		return err
+	}
+	if err := os.WriteFile(filepath.Join(dir, urlsFile), []byte(strings.Join(lib.URLs, "\n")), 0o644); err != nil {
 		return err
 	}
 	// lib.Articles 不回写：文章库是用户往「文章库」目录里丢文件，只读不改。
@@ -192,6 +202,7 @@ func ensureLayout(dir string) error {
 		filepath.Join(dir, titleFile):    defaultTitleTemplate,
 		filepath.Join(dir, keywordsFile): defaultKeywords,
 		filepath.Join(dir, imagesFile):   defaultImages,
+		filepath.Join(dir, urlsFile):     defaultURLs,
 		bodyPath(dir, 0):                 defaultBodyTemplateA,
 		bodyPath(dir, 1):                 defaultBodyTemplateB,
 	}

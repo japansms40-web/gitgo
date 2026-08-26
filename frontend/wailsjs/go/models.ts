@@ -92,6 +92,7 @@ export namespace contentgen {
 	    vars: string[][];
 	    images: string[];
 	    articles: Article[];
+	    urls: string[];
 	
 	    static createFrom(source: any = {}) {
 	        return new Library(source);
@@ -105,6 +106,7 @@ export namespace contentgen {
 	        this.vars = source["vars"];
 	        this.images = source["images"];
 	        this.articles = this.convertValues(source["articles"], Article);
+	        this.urls = source["urls"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

@@ -28,6 +28,12 @@ const MaxCount = 500
 // maxRandomLen 是 {英文=N} 这类随机串的长度上限。
 const maxRandomLen = 64
 
+// 循环标签 {循环=N}…{/循环} 的保护上限，防 {循环=999999} 把内存撑爆。
+const (
+	maxLoopN       = 500     // 单个循环的重复次数上限
+	maxExpandedLen = 1 << 20 // 整篇模板展开后的总字节上限（1 MiB）
+)
+
 // 关键词调用方式。
 const (
 	OrderSequential = "sequential" // 按词库顺序轮转
@@ -54,6 +60,7 @@ type Library struct {
 	Vars          [][]string `json:"vars"`          // 变量词库，最多 VarBankCount 组，一行一条
 	Images        []string   `json:"images"`        // 图片地址库，一行一条，对应 {图片}
 	Articles      []Article  `json:"articles"`      // 文章库，对应 {文章} / {文章名}
+	URLs          []string   `json:"urls"`          // 外链库，一行一条 URL，对应 {随机外链} / {顺序外链}
 }
 
 // Options 控制生成行为，同时也是持久化到配置文件里的内容。
@@ -91,6 +98,45 @@ type Draft struct {
 // tokenRE 匹配 {…} 占位符。花括号是单字节 ASCII，所以按字节切片取名字是安全的。
 var tokenRE = regexp.MustCompile(`\{[^{}]+\}`)
 
+// loopRE 匹配 {循环=N}…{/循环}。(?s) 让 . 跨换行，.*? 非贪婪就近配对最近的 {/循环}，
+// 因此平铺的兄弟循环（目标文档每个 <h2> 分节各包一个循环）能各自正确配对。
+// 不支持嵌套循环——嵌套时就近配对会错位，残留的内层标记按"不认识"原样保留、不会崩。
+var loopRE = regexp.MustCompile(`(?s)\{循环=(\d+)\}(.*?)\{/循环\}`)
+
+// expandLoops 在 token 替换之前做纯文本级循环展开：把每个 {循环=N}…{/循环} 的中间块
+// 原样复制 N 份。之后交给单遍替换，每份里的随机标签（{变量N} 等）会各自独立重抽，
+// 而 {关键词}/{文章} 仍返回本篇固定值。非法/缺闭合的循环走"宽松保留"，与其它标签一致。
+func expandLoops(tpl string) string {
+	remaining := maxExpandedLen // 跨所有兄弟循环共享的展开体积预算
+	return loopRE.ReplaceAllStringFunc(tpl, func(match string) string {
+		m := loopRE.FindStringSubmatch(match) // m[1]=N，m[2]=块内容
+		n, err := strconv.Atoi(m[1])
+		if err != nil || n > maxLoopN { // 溢出或超上限 → 收敛到上限
+			n = maxLoopN
+		}
+		if n < 1 { // {循环=0} 等非法值 → 原样保留，让用户看出写错了
+			return match
+		}
+		block := m[2]
+		if len(block) == 0 {
+			return ""
+		}
+		if len(block)*n > remaining { // 快到体积上限就削减次数
+			n = remaining / len(block)
+		}
+		if n < 1 {
+			return ""
+		}
+		remaining -= len(block) * n
+		var b strings.Builder
+		b.Grow(len(block) * n)
+		for i := 0; i < n; i++ {
+			b.WriteString(block)
+		}
+		return b.String()
+	})
+}
+
 // 随机串的字符集。用 []rune 存是为了让 {中文=N} 这种多字节字符集也能按"个"取。
 var charsets = map[string][]rune{
 	"英文": []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"),
@@ -109,7 +155,7 @@ var (
 	}
 	timeLayouts = map[string]string{
 		"": "15:04", "1": "15:04:05", "2": "15:04",
-		"3": "15时04分", "4": "150405",
+		"3": "15时04分", "4": "150405", "5": "15时04分05秒",
 	}
 )
 
@@ -183,10 +229,19 @@ func pickKeyword(keywords []string, i int, opts Options, rnd *rand.Rand) string 
 	return kw
 }
 
+// renderState 保存一次 render 调用内跨 token 的可变状态。目前只有 {顺序外链} 的游标：
+// 它必须随文档从左到右依次递增，无法像随机标签那样每次独立求值。
+type renderState struct {
+	urlSeq int
+}
+
 // render 把模板里认识的占位符替换掉；不认识的原样留着，方便用户看出自己写错了。
+// 先做循环展开，再单遍替换——展开后的每份复制各自进 resolve，随机标签天然独立重抽。
 func render(tpl string, draw drawContext, lib Library, rnd *rand.Rand, now time.Time) string {
+	tpl = expandLoops(tpl)
+	st := &renderState{}
 	return tokenRE.ReplaceAllStringFunc(tpl, func(match string) string {
-		if value, ok := resolve(match[1:len(match)-1], draw, lib, rnd, now); ok {
+		if value, ok := resolve(match[1:len(match)-1], draw, lib, rnd, now, st); ok {
 			return value
 		}
 		return match
@@ -194,7 +249,7 @@ func render(tpl string, draw drawContext, lib Library, rnd *rand.Rand, now time.
 }
 
 // resolve 解析单个占位符的名字，返回替换值；第二个返回值为 false 表示不认识这个占位符。
-func resolve(name string, draw drawContext, lib Library, rnd *rand.Rand, now time.Time) (string, bool) {
+func resolve(name string, draw drawContext, lib Library, rnd *rand.Rand, now time.Time, st *renderState) (string, bool) {
 	switch name {
 	case "关键词":
 		return draw.keyword, true
@@ -204,6 +259,10 @@ func resolve(name string, draw drawContext, lib Library, rnd *rand.Rand, now tim
 		return draw.article.Name, true
 	case "图片":
 		return imageMarkdown(randomLine(lib.Images, rnd)), true
+	case "随机外链":
+		return randomLine(lib.URLs, rnd), true // 每次出现重抽，同 {变量N}
+	case "顺序外链":
+		return sequentialLine(lib.URLs, st), true // 跨整篇正文按行依次轮转
 	}
 
 	// {日期N} / {时间N}
@@ -251,6 +310,17 @@ func randomLine(bank []string, rnd *rand.Rand) string {
 		return ""
 	}
 	return bank[rnd.Intn(len(bank))]
+}
+
+// sequentialLine 从词库里按顺序取下一行，取到末尾再回到开头；词库为空时返回空串。
+// 游标存在 renderState 里，所以一次 render 内多个 {顺序外链} 会依次轮转、可复现。
+func sequentialLine(bank []string, st *renderState) string {
+	if len(bank) == 0 {
+		return ""
+	}
+	line := bank[st.urlSeq%len(bank)]
+	st.urlSeq++
+	return line
 }
 
 // imageMarkdown 把图片库里的一行包成 Markdown 图片语法。

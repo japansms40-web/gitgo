@@ -188,7 +188,9 @@ func (a *App) Generate(opts contentgen.Options) ([]contentgen.Draft, error) {
 	}
 
 	rnd := rand.New(rand.NewSource(time.Now().UnixNano()))
-	drafts, err := contentgen.Generate(lib, opts, rnd, time.Now())
+	// {日期N}/{时间N} 按北京时间（UTC+8）输出；用 FixedZone 免依赖各平台 tzdata。
+	now := time.Now().In(time.FixedZone("CST", 8*3600))
+	drafts, err := contentgen.Generate(lib, opts, rnd, now)
 	if err != nil {
 		return nil, err
 	}

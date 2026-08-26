@@ -33,6 +33,13 @@ const defaultKeywords = `绿茶冲泡方法
 // 一行一条，写成 Markdown 或 HTML 也可以，会原样使用。
 const defaultImages = ""
 
+// 外链库：一行一条 URL，{随机外链} 随机取、{顺序外链} 顺序轮取。
+// 给几条示例便于首次上手，用户可在「文件库」里改成自己的。
+const defaultURLs = `https://example.com/a
+https://example.com/b
+https://example.com/c
+`
+
 // defaultVarContents 按下标对应变量库 1~VarBankCount，
 // 分工大致是：开头段 / 结尾段 / 要点句 / 表情符号 / 长段落。
 var defaultVarContents = []string{

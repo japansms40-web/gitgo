@@ -46,6 +46,7 @@ func TestGenerateDateAndTimeVariants(t *testing.T) {
 		"{时间2}": "17:42",
 		"{时间3}": "17时42分",
 		"{时间4}": "174230",
+		"{时间5}": "17时42分30秒",
 	}
 	for token, want := range cases {
 		t.Run(token, func(t *testing.T) {
@@ -501,4 +502,128 @@ func slicesContains(list []string, want string) bool {
 		}
 	}
 	return false
+}
+
+// ---------- 循环标签 {循环=N}…{/循环} ----------
+
+func TestExpandLoopsRepeatsBlock(t *testing.T) {
+	if got := expandLoops("{循环=3}X{/循环}"); got != "XXX" {
+		t.Errorf("expandLoops = %q，期望 XXX", got)
+	}
+}
+
+func TestExpandLoopsFlatSiblings(t *testing.T) {
+	// 平铺的兄弟循环应各自就近配对，互不干扰。
+	if got := expandLoops("{循环=2}A{/循环}-{循环=3}B{/循环}"); got != "AA-BBB" {
+		t.Errorf("expandLoops = %q，期望 AA-BBB", got)
+	}
+}
+
+func TestExpandLoopsClampsUpperBound(t *testing.T) {
+	got := expandLoops("{循环=99999}x{/循环}")
+	if len(got) != maxLoopN {
+		t.Errorf("超上限的循环应钳到 maxLoopN=%d，实际展开 %d 份", maxLoopN, len(got))
+	}
+}
+
+func TestExpandLoopsVolumeCap(t *testing.T) {
+	block := strings.Repeat("a", 10000)
+	got := expandLoops("{循环=99999}" + block + "{/循环}")
+	if len(got) > maxExpandedLen {
+		t.Errorf("展开体积 %d 超过上限 %d", len(got), maxExpandedLen)
+	}
+}
+
+func TestExpandLoopsMissingCloseKeptLiteral(t *testing.T) {
+	in := "{循环=3}abc"
+	if got := expandLoops(in); got != in {
+		t.Errorf("缺 {/循环} 应原样保留，得到 %q", got)
+	}
+}
+
+func TestExpandLoopsInvalidNKeptLiteral(t *testing.T) {
+	in := "{循环=0}x{/循环}"
+	if got := expandLoops(in); got != in {
+		t.Errorf("{循环=0} 应原样保留，得到 %q", got)
+	}
+}
+
+func TestGenerateLoopRandomIndependentPerIteration(t *testing.T) {
+	bank := []string{"甲", "乙", "丙", "丁", "戊", "己", "庚", "辛", "壬", "癸"}
+	lib := Library{
+		TitleTemplate: "标题",
+		BodyTemplates: body("{循环=8}{变量1}{/循环}"),
+		Vars:          [][]string{bank},
+	}
+	drafts, err := Generate(lib, Options{Count: 1}, newRnd(), fixedNow)
+	if err != nil {
+		t.Fatalf("Generate 返回错误: %v", err)
+	}
+	runes := []rune(drafts[0].Body)
+	if len(runes) != 8 {
+		t.Fatalf("循环 8 次应有 8 个字符，得到 %q", drafts[0].Body)
+	}
+	distinct := map[rune]bool{}
+	for _, r := range runes {
+		distinct[r] = true
+	}
+	if len(distinct) < 2 {
+		t.Errorf("循环内的随机标签应各次独立重抽，实际全同: %q", drafts[0].Body)
+	}
+}
+
+func TestGenerateLoopKeepsKeywordConstant(t *testing.T) {
+	lib := Library{
+		TitleTemplate: "{循环=3}{关键词}|{/循环}",
+		BodyTemplates: body("x"),
+		Keywords:      []string{"茶"},
+	}
+	drafts, err := Generate(lib, Options{Count: 1}, newRnd(), fixedNow)
+	if err != nil {
+		t.Fatalf("Generate 返回错误: %v", err)
+	}
+	if got, want := drafts[0].Title, "茶|茶|茶|"; got != want {
+		t.Errorf("循环内 {关键词} 应保持同值，得到 %q，期望 %q", got, want)
+	}
+}
+
+// ---------- 外链标签 {随机外链} / {顺序外链} ----------
+
+func TestGenerateRandomExternalLink(t *testing.T) {
+	urls := []string{"http://a.cn", "http://b.cn", "http://c.cn"}
+	lib := Library{TitleTemplate: "{随机外链}", BodyTemplates: body("x"), URLs: urls}
+	drafts, err := Generate(lib, Options{Count: 1}, newRnd(), fixedNow)
+	if err != nil {
+		t.Fatalf("Generate 返回错误: %v", err)
+	}
+	if !slicesContains(urls, drafts[0].Title) {
+		t.Errorf("{随机外链} 应取自外链库，得到 %q", drafts[0].Title)
+	}
+}
+
+func TestGenerateSequentialExternalLinkRotates(t *testing.T) {
+	// 用标题（不过 postProcess，只 TrimSpace）验证顺序轮转，完全确定、与 rnd 无关。
+	lib := Library{
+		TitleTemplate: "{循环=5}{顺序外链},{/循环}",
+		BodyTemplates: body("x"),
+		URLs:          []string{"u0", "u1", "u2"},
+	}
+	drafts, err := Generate(lib, Options{Count: 1}, newRnd(), fixedNow)
+	if err != nil {
+		t.Fatalf("Generate 返回错误: %v", err)
+	}
+	if got, want := drafts[0].Title, "u0,u1,u2,u0,u1,"; got != want {
+		t.Errorf("{顺序外链} 应按行轮转，得到 %q，期望 %q", got, want)
+	}
+}
+
+func TestGenerateExternalLinkEmptyBankLenient(t *testing.T) {
+	lib := Library{TitleTemplate: "[{随机外链}][{顺序外链}]", BodyTemplates: body("x")}
+	drafts, err := Generate(lib, Options{Count: 1}, newRnd(), fixedNow)
+	if err != nil {
+		t.Fatalf("Generate 返回错误: %v", err)
+	}
+	if got, want := drafts[0].Title, "[][]"; got != want {
+		t.Errorf("空外链库应替换成空串，得到 %q，期望 %q", got, want)
+	}
 }
