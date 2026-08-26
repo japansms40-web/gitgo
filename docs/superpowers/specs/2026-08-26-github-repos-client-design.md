@@ -55,6 +55,9 @@ internal/github/
     - `accept-language: zh-CN,zh;q=0.9`
     - `cookie: <入参 cookie>`
   - Cookie 作为**入参**传入，不写死进生产代码（避免明文 Cookie 落库；见备忘 github-token-plaintext-risk）。
+- `New(cookie string, opts ...Option)` 用函数式选项留扩展点。`WithProxy(url)` 设代理
+  （socks5/http/https）。**注意 gohttpkit 空 ProxyURL 时不回退环境变量、直接直连**，而 github.com
+  常需代理，故代理必须显式传。
 - 说明：`Connection` / `Accept-Encoding` / `Host` 等 hop-by-hop 或由 gohttpkit/传输层自动管理的头
   不手动带。
 
@@ -97,9 +100,12 @@ internal/github/
 1. **离线解析测试** `TestListRepos_DecodeResponse`：读 `testdata/repos_response.json`，`json.Unmarshal`，
    断言 `RepositoryCount==1`、`PageCount==1`、`Repositories[0].Name=="abyuds"`、`Type=="Public"`、
    `LastUpdated.HasBeenPushedTo==true`。永远稳定、不依赖网络。
-2. **集成测试** `TestListRepos_Live`：`if testing.Short() { t.Skip(...) }` 守卫；写死抓包 Cookie 为
-   测试内常量，`New(cookie)` → `ListRepos(ctx, 1)`，断言无 error 且 `PageCount>=1`。默认 `go test` 会
-   真打 github.com；`go test -short` 只跑离线。Cookie 过期时测试会因非 2xx 报错，届时用户自行更换。
+2. **集成测试** `TestListRepos_Live`：`if testing.Short() { t.Skip(...) }` 守卫；Cookie 从环境变量
+   `GH_TEST_COOKIE` 读（**绝不写死进仓库**——本仓库公开，Cookie 泄露即会话被劫持），未设则 `t.Skip`；
+   代理取 `GITHUB_TEST_PROXY` 或系统 `HTTPS_PROXY/HTTP_PROXY`，`New(cookie, WithProxy(...))` →
+   `ListRepos(ctx, 1)`，断言无 error 且 `PageCount>=1`。跑法：
+   `GH_TEST_COOKIE='...' go test -run Live ./internal/github/`。`go test -short` 只跑离线。
+   Cookie 过期时测试会因非 2xx 报错，届时换环境变量那串即可。
 
 ## 数据流
 
