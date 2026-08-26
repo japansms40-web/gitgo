@@ -5,6 +5,7 @@ import (
 	"os"
 	"sync"
 	"testing"
+	"time"
 
 	"gitmd/internal/contentgen"
 )
@@ -30,6 +31,11 @@ func (r *captureReporter) Account(id int, status string, success, fail int) {
 	defer r.mu.Unlock()
 	r.statuses[id] = status
 	r.success[id] = success
+}
+func (r *captureReporter) Published(id int, repo, file, url string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.logs = append(r.logs, "[链接] "+url)
 }
 
 func liveProxy() string {
@@ -72,7 +78,7 @@ func TestRunner_Live(t *testing.T) {
 		Cycles:           2,
 		RoundIntervalSec: 0,
 		ProxyURL:         liveProxy(),
-	}, []Account{{ID: 1, CK: ck}}, lib, contentgen.Options{}, rep, 42)
+	}, []Account{{ID: 1, CK: ck}}, lib, contentgen.Options{}, rep, time.Now().UnixNano())
 
 	r.Run(context.Background())
 
