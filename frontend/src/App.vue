@@ -14,7 +14,7 @@ import HelpIcon from './icons/HelpIcon.vue'
 import * as App from '../wailsjs/go/main/App'
 import { EventsOn, WindowMinimise, WindowToggleMaximise, Quit } from '../wailsjs/runtime/runtime'
 
-const APP_VERSION = 'v1.2.0'
+const APP_VERSION = 'v1.4.0'
 const APP_NAME = 'Git MD'
 
 const NAV_ITEMS = [
@@ -322,14 +322,18 @@ async function onSaveConfig() {
   pushLog('info', '[信息]', '配置已保存')
 }
 
-// 开始工作：发布页触发/停止真实发布，其它页触发内容生成。
+// 开始/停止工作。按钮文案由 working(publishing||generating) 决定，与当前页无关，
+// 所以点击语义也必须与之一致：只要有任务在跑就「停」，不看在哪一页——否则发布中点了
+// 「查看链接」会跳到内容页(见 onViewLinks)，此时按页路由会误入生成分支，导致「停止工作」停不掉发布。
+// 只有空闲时才按当前页决定启动哪种工作。
 function onStartWork() {
-  if (page.value === 'publish') {
-    if (publishing.value) onStopPublish()
-    else onPublishAll()
-  } else {
-    if (!generating.value) onGenerate()
+  if (publishing.value) {
+    onStopPublish()
+    return
   }
+  if (generating.value) return // 生成暂不支持中断，忙碌中不重复触发
+  if (page.value === 'publish') onPublishAll()
+  else onGenerate()
 }
 
 // onStopPublish 请求后端取消发布任务。
