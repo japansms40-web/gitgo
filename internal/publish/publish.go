@@ -230,7 +230,10 @@ func (r *Runner) processAccount(ctx context.Context, a Account, rnd *rand.Rand) 
 			Filename:   fn,
 			Content:    d.Body,
 			Message:    firstLine(d.Title),
-			BaseCommit: baseCommit,
+			// 正文同时塞进 commit 说明正文：GitHub commit 页会把它显示在标题下方，
+			// 并把其中的 http(s):// 与 www. 域名自动渲染成可点链接（与同行页面一致）。
+			Description: d.Body,
+			BaseCommit:  baseCommit,
 		})
 		fcode := client.LastStatusCode()
 		if ferr != nil {
