@@ -34,6 +34,10 @@ export function OpenLogsDir():Promise<string>;
 
 export function ReadConfigFile(arg1:string):Promise<configdir.FilePreview>;
 
+export function ReadConfigFileTail(arg1:string):Promise<configdir.FilePreview>;
+
+export function RevealConfigFile(arg1:string):Promise<string>;
+
 export function SaveConfig(arg1:contentgen.Options):Promise<string>;
 
 export function SaveTemplates(arg1:string,arg2:Array<string>):Promise<string>;

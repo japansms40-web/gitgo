@@ -4,6 +4,7 @@
 package configdir
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -77,6 +78,25 @@ func Tree(configPath string) ([]Node, error) {
 // ReadFile 读取配置目录下 relPath 指向的文件内容用于预览。
 // relPath 必须落在配置目录内，防止用 .. 读到目录外的文件。
 func ReadFile(configPath, relPath string) (FilePreview, error) {
+	return readPreview(configPath, relPath, false)
+}
+
+// ReadFileTail 与 ReadFile 相同，但文件过大时保留尾部而非头部。供「查看链接」这类
+// 边发边 append、最新内容在末尾的大文件用——头部截断会只显示最旧的链接。
+func ReadFileTail(configPath, relPath string) (FilePreview, error) {
+	return readPreview(configPath, relPath, true)
+}
+
+// ResolveFile 把配置目录下的相对路径解析成校验过的绝对路径，供在文件管理器里定位。
+func ResolveFile(configPath, relPath string) (string, error) {
+	base, err := Resolve(configPath)
+	if err != nil {
+		return "", err
+	}
+	return safeJoin(base, relPath)
+}
+
+func readPreview(configPath, relPath string, tail bool) (FilePreview, error) {
 	base, err := Resolve(configPath)
 	if err != nil {
 		return FilePreview{}, err
@@ -101,12 +121,21 @@ func ReadFile(configPath, relPath string) (FilePreview, error) {
 
 	truncated := false
 	if len(b) > maxPreviewBytes {
-		b = b[:maxPreviewBytes]
-		// 截断可能切断多字节字符，去掉尾部残缺的 UTF-8 字节。
-		for len(b) > 0 && !utf8.Valid(b) {
-			b = b[:len(b)-1]
-		}
 		truncated = true
+		if tail {
+			b = b[len(b)-maxPreviewBytes:]
+			// 从首个换行之后开始：丢掉开头那半行（顺带去掉被切断的多字节字符），
+			// 保证预览从一整行的行首起。
+			if i := bytes.IndexByte(b, '\n'); i >= 0 {
+				b = b[i+1:]
+			}
+		} else {
+			b = b[:maxPreviewBytes]
+			// 截断可能切断多字节字符，去掉尾部残缺的 UTF-8 字节。
+			for len(b) > 0 && !utf8.Valid(b) {
+				b = b[:len(b)-1]
+			}
+		}
 	}
 
 	content := strings.ReplaceAll(string(b), "\r\n", "\n")

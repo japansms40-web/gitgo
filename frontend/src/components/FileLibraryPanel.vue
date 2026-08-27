@@ -1,6 +1,6 @@
 <script setup>
 import { ref, onMounted, computed, watch } from 'vue'
-import { ListConfigTree, ReadConfigFile, WriteConfigFile } from '../../wailsjs/go/main/App'
+import { ListConfigTree, ReadConfigFile, ReadConfigFileTail, WriteConfigFile, RevealConfigFile } from '../../wailsjs/go/main/App'
 
 const props = defineProps({
   openFile: { type: Object, default: null }, // 外部要求打开的文件：{ path, n }
@@ -12,6 +12,7 @@ const selectedFile = ref(null)
 const baseline = ref('') // 磁盘上的原始内容，用来判断是否改动过
 const editContent = ref('') // 文本框里正在编辑的内容
 const truncated = ref(false) // 文件过大被截断：此时禁止编辑，以免保存丢内容
+const tailView = ref(false) // 当前预览是否只加载了文件尾部（查看链接等大文件）
 const loading = ref(false)
 const saving = ref(false)
 const errorMsg = ref('')
@@ -47,7 +48,7 @@ watch(
     if (!v || !v.path) return
     await loadFiles()
     const node = findNode(tree.value, v.path)
-    if (node) await selectFile(node)
+    if (node) await selectFile(node, !!v.tail)
     else errorMsg.value = `未找到文件：${v.path}`
   },
   { immediate: true },
@@ -98,14 +99,16 @@ async function onRowClick(node) {
   await selectFile(node)
 }
 
-async function selectFile(node) {
+// tail：文件过大时只加载尾部最新内容（查看链接等大文件），否则加载头部。
+async function selectFile(node, tail = false) {
   selectedFile.value = node.path
   baseline.value = ''
   editContent.value = '加载中…'
   truncated.value = false
+  tailView.value = tail
   errorMsg.value = ''
   try {
-    const preview = await ReadConfigFile(node.path)
+    const preview = tail ? await ReadConfigFileTail(node.path) : await ReadConfigFile(node.path)
     baseline.value = preview.content ?? ''
     editContent.value = baseline.value
     truncated.value = !!preview.truncated
@@ -114,6 +117,14 @@ async function selectFile(node) {
     editContent.value = ''
     errorMsg.value = String(error?.message ?? error)
   }
+}
+
+// revealFile 在系统文件管理器里定位并选中当前文件，供大文件用外部工具打开（不在应用内加载）。
+async function revealFile() {
+  if (!selectedFile.value) return
+  errorMsg.value = ''
+  const err = await RevealConfigFile(selectedFile.value)
+  if (err) errorMsg.value = err
 }
 
 async function saveFile() {
@@ -139,6 +150,7 @@ function refresh() {
   baseline.value = ''
   editContent.value = ''
   truncated.value = false
+  tailView.value = false
   loadFiles()
 }
 </script>
@@ -178,8 +190,9 @@ function refresh() {
           <span v-if="selectedFile" class="file-path mono">{{ selectedFile }}</span>
           <span v-else class="placeholder">选择文件查看内容</span>
           <span v-if="dirty" class="preview-dirty">● 未保存</span>
-          <span v-if="truncated" class="preview-truncated">文件过大，只读预览</span>
+          <span v-if="truncated" class="preview-truncated">{{ tailView ? '仅显示文件末尾最新部分 · 只读' : '文件过大，只读预览' }}</span>
           <div class="spacer" />
+          <button v-if="selectedFile" class="btn-action btn-reveal" @click="revealFile">📂 在文件夹中显示</button>
           <button
             v-if="selectedFile"
             class="btn-save"

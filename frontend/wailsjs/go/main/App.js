@@ -62,6 +62,14 @@ export function ReadConfigFile(arg1) {
   return window['go']['main']['App']['ReadConfigFile'](arg1);
 }
 
+export function ReadConfigFileTail(arg1) {
+  return window['go']['main']['App']['ReadConfigFileTail'](arg1);
+}
+
+export function RevealConfigFile(arg1) {
+  return window['go']['main']['App']['RevealConfigFile'](arg1);
+}
+
 export function SaveConfig(arg1) {
   return window['go']['main']['App']['SaveConfig'](arg1);
 }
