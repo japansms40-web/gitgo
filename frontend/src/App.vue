@@ -171,6 +171,8 @@ function addAccounts(cks) {
 const drafts = ref([])
 const generating = ref(false)
 const logs = ref([])
+const LOG_MAX = 1000 // 日志面板只保留最近 N 行（全量历史在磁盘日志文件里）
+let nextLogId = 1 // 每行日志的稳定 key，供 LogPanel 复用 DOM、避免 shift 触发全表重排
 const autoScroll = ref(true)
 const banner = ref('')
 
@@ -182,8 +184,8 @@ function showBanner(msg) {
 }
 
 function pushLog(kind, tag, msg) {
-  logs.value.push({ time: new Date().toTimeString().slice(0, 8), tag, kind, msg, highlight: false })
-  if (logs.value.length > 1000) logs.value.shift()
+  logs.value.push({ _id: nextLogId++, time: new Date().toTimeString().slice(0, 8), tag, kind, msg, highlight: false })
+  if (logs.value.length > LOG_MAX) logs.value.splice(0, logs.value.length - LOG_MAX)
   // 前端产生的日志也落盘到当天日志文件（后端日志由后端直接写，不经这里，避免重复）
   App.AppendLog(tag, msg)
 }
@@ -210,24 +212,30 @@ const pill = computed(() => {
 })
 
 onMounted(async () => {
-  EventsOn('gen:log', (line) => {
-    logs.value.push(line)
-    if (logs.value.length > 1000) logs.value.shift()
+  // 后端按 ~100ms 微批合并，载荷为数组；遍历入库。稳定 _id 让 LogPanel 复用 DOM。
+  EventsOn('gen:log', (lines) => {
+    for (const line of lines) {
+      line._id = nextLogId++
+      logs.value.push(line)
+    }
+    if (logs.value.length > LOG_MAX) logs.value.splice(0, logs.value.length - LOG_MAX)
   })
 
-  // 发布进度：单账号状态更新
-  EventsOn('publish:account', (u) => {
-    const a = accounts.value.find((x) => x.id === u.id)
-    if (!a) return
-    a.status = u.status
-    a.success = u.success
-    a.fail = u.fail
-    if (u.status === 'bad') a.bad = true
+  // 发布进度：单账号状态更新（数组，同窗口每号只带最新累计值）
+  EventsOn('publish:account', (updates) => {
+    for (const u of updates) {
+      const a = accounts.value.find((x) => x.id === u.id)
+      if (!a) continue
+      a.status = u.status
+      a.success = u.success
+      a.fail = u.fail
+      if (u.status === 'bad') a.bad = true
+    }
   })
-  // 发布成功一篇：收集链接，供「查看链接」输出到文件
-  EventsOn('publish:link', (l) => {
-    links.value.push({ repo: l.repo, file: l.file, url: l.url })
-    if (links.value.length > 20000) links.value.shift()
+  // 发布成功一篇：收集链接（数组），供「查看链接」输出到文件
+  EventsOn('publish:link', (arr) => {
+    for (const l of arr) links.value.push({ repo: l.repo, file: l.file, url: l.url })
+    if (links.value.length > 20000) links.value.splice(0, links.value.length - 20000)
   })
   // 发布任务结束（链接已由后端边发边增量写入 查看链接.txt）
   EventsOn('publish:done', () => {
@@ -509,8 +517,9 @@ async function onViewLinks() {
     return
   }
   page.value = 'content'
-  // 变更 n 触发文件库重新加载并选中该文件（Date.now 仅作触发用，不参与逻辑）
-  openLibFile.value = { path: LINKS_FILE, n: Date.now() }
+  // 变更 n 触发文件库重新加载并选中该文件（Date.now 仅作触发用，不参与逻辑）。
+  // tail：链接文件可达数十万行，预览只加载尾部最新链接，避免整份加载卡死。
+  openLibFile.value = { path: LINKS_FILE, n: Date.now(), tail: true }
 }
 
 function logText() {

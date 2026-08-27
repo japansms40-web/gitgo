@@ -2,22 +2,28 @@
 // 本组件在 df-ui-shell 的 LogPanel 基础上本地扩展：工具栏多一个「查看日志」按钮
 // （emit view-logs，用于打开本地日志目录）。df-ui-shell 是 git 依赖、node_modules 不可持久改，
 // 故在应用内 fork 一份；其余行为与上游保持一致。
-import { nextTick, ref, watch } from 'vue'
+import { ref, watch } from 'vue'
 
 const props = defineProps({
-  lines: { type: Array, required: true }, // {time, tag, kind, msg, highlight}
+  lines: { type: Array, required: true }, // {_id, time, tag, kind, msg, highlight}
   autoScroll: { type: Boolean, required: true },
 })
 const emit = defineEmits(['update:autoScroll', 'copy', 'export', 'clear', 'view-logs'])
 
 const bodyEl = ref(null)
 
+// 滚到底用 rAF 节流：每帧最多一次强制 reflow，避免每条日志一次同步重排。
+// Vue 的 DOM patch 在 microtask 里先于 rAF 完成，故回调里读到的已是更新后的高度。
+let scrollQueued = false
 watch(
   () => props.lines.length,
-  async () => {
-    if (!props.autoScroll) return
-    await nextTick()
-    if (bodyEl.value) bodyEl.value.scrollTop = bodyEl.value.scrollHeight
+  () => {
+    if (!props.autoScroll || scrollQueued) return
+    scrollQueued = true
+    requestAnimationFrame(() => {
+      scrollQueued = false
+      if (bodyEl.value) bodyEl.value.scrollTop = bodyEl.value.scrollHeight
+    })
   },
 )
 
@@ -62,7 +68,7 @@ function msgColor(line) {
       <span class="log-action log-action-danger" @click="emit('clear')">清空</span>
     </div>
     <div ref="bodyEl" class="log-body mono">
-      <div v-for="(l, i) in lines" :key="i" class="log-line">
+      <div v-for="l in lines" :key="l._id" class="log-line">
         <span class="log-time">{{ l.time }}</span>
         <span class="log-tag" :style="{ color: tagColor(l.kind) }">{{ l.tag }}</span>
         <span class="log-msg" :style="{ color: msgColor(l) }">{{ l.msg }}</span>

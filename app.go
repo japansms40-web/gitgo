@@ -124,6 +124,21 @@ func openInFileManager(path string) error {
 	return cmd.Start()
 }
 
+// revealInFileManager 在文件管理器里定位并选中一个文件（而非打开它）。
+// Linux 无统一的「选中」命令，退回打开其所在目录。
+func revealInFileManager(path string) error {
+	var cmd *exec.Cmd
+	switch stdruntime.GOOS {
+	case "darwin":
+		cmd = exec.Command("open", "-R", path)
+	case "windows":
+		cmd = exec.Command("explorer", "/select,"+path)
+	default:
+		cmd = exec.Command("xdg-open", filepath.Dir(path))
+	}
+	return cmd.Start()
+}
+
 // ImportTextFile 让用户选一个 txt 文件并返回其内容，用于往模板/词库输入框里灌数据。
 // 用户取消选择时返回空字符串。
 func (a *App) ImportTextFile() (string, error) {
@@ -169,13 +184,40 @@ func (a *App) ListConfigTree() ([]configdir.Node, error) {
 	return configdir.Tree(dir)
 }
 
-// ReadConfigFile 读取素材目录下某个文件的内容用于预览；过大的文件会被截断。
+// ReadConfigFile 读取素材目录下某个文件的内容用于预览；过大的文件会被截断（保留头部）。
 func (a *App) ReadConfigFile(relPath string) (configdir.FilePreview, error) {
 	dir, err := a.contentDir()
 	if err != nil {
 		return configdir.FilePreview{}, err
 	}
 	return configdir.ReadFile(dir, relPath)
+}
+
+// ReadConfigFileTail 与 ReadConfigFile 类似，但文件过大时保留尾部（最新内容）；
+// 供「查看链接」预览末尾最新链接，避免只看到最旧的一段。
+func (a *App) ReadConfigFileTail(relPath string) (configdir.FilePreview, error) {
+	dir, err := a.contentDir()
+	if err != nil {
+		return configdir.FilePreview{}, err
+	}
+	return configdir.ReadFileTail(dir, relPath)
+}
+
+// RevealConfigFile 在系统文件管理器里定位并选中素材目录下的某个文件，
+// 供「查看链接」这类大文件不在应用内整份加载，直接跳到文件让用户用趁手的工具打开。
+func (a *App) RevealConfigFile(relPath string) string {
+	dir, err := a.contentDir()
+	if err != nil {
+		return err.Error()
+	}
+	full, err := configdir.ResolveFile(dir, relPath)
+	if err != nil {
+		return err.Error()
+	}
+	if err := revealInFileManager(full); err != nil {
+		return err.Error()
+	}
+	return ""
 }
 
 // WriteConfigFile 把「文件库」里编辑后的内容写回素材目录对应的文件。
@@ -379,6 +421,7 @@ func (a *App) StartPublish(accounts []PublishAccount, cfg PublishConfig, genOpts
 	a.publishing = true
 	a.publishMu.Unlock()
 
+	reporter := &batchReporter{a: a, accounts: map[int]PublishAccountUpdate{}}
 	runner := publish.New(publish.Config{
 		Threads:          cfg.Threads,
 		IntervalSec:      cfg.Interval,
@@ -387,9 +430,10 @@ func (a *App) StartPublish(accounts []PublishAccount, cfg PublishConfig, genOpts
 		Cycles:           cfg.AccountCycles,
 		RoundIntervalSec: cfg.RoundInterval,
 		ProxyURL:         cfg.ProxyURL,
-	}, accs, lib, genOpts, wailsReporter{a: a}, time.Now().UnixNano())
+	}, accs, lib, genOpts, reporter, time.Now().UnixNano())
 
 	a.resetLinksFile() // 新一轮发布清空 查看链接.txt，之后由 worker 增量 append
+	reporter.start()   // 起微批刷新循环（worker 回报只入缓冲，由它合并 emit + 落盘）
 	a.emitInfo(fmt.Sprintf("开始发布：账号 %d 个 · 线程 %d · 每号 %d 篇 · %d 轮", len(accs), cfg.Threads, cfg.PerAccount, max(cfg.AccountCycles, 1)))
 
 	go func() {
@@ -398,6 +442,7 @@ func (a *App) StartPublish(accounts []PublishAccount, cfg PublishConfig, genOpts
 			a.publishing = false
 			a.publishCancel = nil
 			a.publishMu.Unlock()
+			reporter.close() // 先最终 flush 排空尾部（保证 done 晚于最后一批数据）
 			runtime.EventsEmit(a.ctx, eventPublishDone, nil)
 		}()
 		runner.Run(ctx)
@@ -428,11 +473,11 @@ func (a *App) resetLinksFile() {
 	_ = os.WriteFile(filepath.Join(dir, LinksFileName), []byte{}, 0o644)
 }
 
-// appendLinks 把一篇的多条链接增量 append 到 查看链接.txt（不存在则创建），
-// 一次持锁写完全部行——保证同一篇的 commit/blob 成对相邻，不被其它 worker 插入打断。
-// 由发布 worker 每成功发一篇即调用，边发边落盘、抗崩溃。尽力而为，出错静默。
-func (a *App) appendLinks(urls ...string) {
-	if len(urls) == 0 {
+// appendLinksBatch 把一批链接一次持锁 append 到 查看链接.txt（不存在则创建）。
+// 由 batchReporter.flush 调用，links 保持 worker 产出顺序——同一篇的 commit/blob
+// 连续排列，整批一次写入天然保留成对相邻。尽力而为，出错静默。
+func (a *App) appendLinksBatch(links []PublishLink) {
+	if len(links) == 0 {
 		return
 	}
 	dir, err := a.contentDir()
@@ -440,8 +485,8 @@ func (a *App) appendLinks(urls ...string) {
 		return
 	}
 	var b strings.Builder
-	for _, u := range urls {
-		b.WriteString(u)
+	for _, l := range links {
+		b.WriteString(l.URL)
 		b.WriteByte('\n')
 	}
 
@@ -475,30 +520,124 @@ func (a *App) EnsureLinksFile() string {
 	return ""
 }
 
-// wailsReporter 把 publish 引擎的进度转成 Wails 事件回前端。EventsEmit 并发安全。
-type wailsReporter struct{ a *App }
+// flushInterval 是 batchReporter 的微批刷新周期：每 100ms 把这段时间内累积的
+// 日志/计数/链接合并成数组一次性 emit + 落盘。100ms 对人眼即时，却把 IPC 消息量
+// 从「每篇 6 条」压到「每种事件 ≤10 条/秒」，根治前端积压滞后。
+const flushInterval = 100 * time.Millisecond
 
-func (r wailsReporter) Log(kind, tag, msg string) {
+// bufLog 是 batchReporter 缓冲的一条日志：line 是发前端的载荷（Time 只到秒），
+// t 是完整时间戳，仅落盘用（日期文件名 + 行前缀）。
+type bufLog struct {
+	line LogLine
+	t    time.Time
+}
+
+// batchReporter 实现 publish.Reporter：把多 worker 并发回报的进度先入内存缓冲，
+// 由后台 ticker 每 flushInterval 合并成数组事件一次性 emit + 批量落盘，取代原
+// wailsReporter 的「每条同步 emit + 每行开关文件」。emit 一律用 a.ctx（publish
+// 的可取消 ctx 取消后，最终 flush 仍需把尾部投递出去）。
+type batchReporter struct {
+	a *App
+
+	mu       sync.Mutex
+	logs     []bufLog
+	links    []PublishLink
+	accounts map[int]PublishAccountUpdate // id -> 最新累计快照（同窗口去重）
+	accOrder []int                        // 账号首次出现顺序，保证 emit 顺序稳定
+
+	stop chan struct{} // 通知 flush 循环退出
+	done chan struct{} // flush 循环已退出（close 时等待它，保证之后无并发 flush）
+}
+
+func (r *batchReporter) Log(kind, tag, msg string) {
 	now := time.Now()
-	runtime.EventsEmit(r.a.ctx, eventLog, LogLine{
-		Time: now.Format("15:04:05"), Tag: tag, Kind: kind, Msg: msg,
+	r.mu.Lock()
+	r.logs = append(r.logs, bufLog{
+		line: LogLine{Time: now.Format("15:04:05"), Tag: tag, Kind: kind, Msg: msg},
+		t:    now,
 	})
-	r.a.writeLogLine(now, tag, msg)
+	r.mu.Unlock()
 }
 
-func (r wailsReporter) Account(id int, status string, success, fail int) {
-	runtime.EventsEmit(r.a.ctx, eventPublishAccount, PublishAccountUpdate{
-		ID: id, Status: status, Success: success, Fail: fail,
-	})
-}
-
-func (r wailsReporter) Published(id int, repo, file string, urls ...string) {
-	for _, u := range urls {
-		runtime.EventsEmit(r.a.ctx, eventPublishLink, PublishLink{
-			ID: id, Repo: repo, File: file, URL: u,
-		})
+func (r *batchReporter) Account(id int, status string, success, fail int) {
+	r.mu.Lock()
+	if _, ok := r.accounts[id]; !ok {
+		r.accOrder = append(r.accOrder, id)
 	}
-	r.a.appendLinks(urls...) // 一篇的多条链接成对原子落盘到 查看链接.txt
+	r.accounts[id] = PublishAccountUpdate{ID: id, Status: status, Success: success, Fail: fail}
+	r.mu.Unlock()
+}
+
+func (r *batchReporter) Published(id int, repo, file string, urls ...string) {
+	r.mu.Lock()
+	// 同一篇的多条 URL 在同一把锁下连续 append，别的 worker 无法插入其间——
+	// 复刻原 appendLinks 的 commit/blob「成对原子相邻」不变量。
+	for _, u := range urls {
+		r.links = append(r.links, PublishLink{ID: id, Repo: repo, File: file, URL: u})
+	}
+	r.mu.Unlock()
+}
+
+// flush 交换出当前缓冲（锁内只做「读引用 + 置 nil」），随后在锁外 emit + 落盘，
+// 避免长时间持锁；r.mu 与 logMu/linksMu 从不嵌套持有。
+func (r *batchReporter) flush() {
+	r.mu.Lock()
+	logs := r.logs
+	links := r.links
+	var accs []PublishAccountUpdate
+	if len(r.accOrder) > 0 {
+		accs = make([]PublishAccountUpdate, 0, len(r.accOrder))
+		for _, id := range r.accOrder {
+			accs = append(accs, r.accounts[id])
+		}
+	}
+	r.logs = nil
+	r.links = nil
+	r.accounts = make(map[int]PublishAccountUpdate)
+	r.accOrder = nil
+	r.mu.Unlock()
+
+	if len(logs) > 0 {
+		lines := make([]LogLine, len(logs))
+		for i := range logs {
+			lines[i] = logs[i].line
+		}
+		runtime.EventsEmit(r.a.ctx, eventLog, lines)
+		r.a.writeLogBatch(logs)
+	}
+	if len(accs) > 0 {
+		runtime.EventsEmit(r.a.ctx, eventPublishAccount, accs)
+	}
+	if len(links) > 0 {
+		runtime.EventsEmit(r.a.ctx, eventPublishLink, links)
+		r.a.appendLinksBatch(links)
+	}
+}
+
+// start 起后台 ticker 循环，每 flushInterval flush 一次。
+func (r *batchReporter) start() {
+	r.stop = make(chan struct{})
+	r.done = make(chan struct{})
+	go func() {
+		defer close(r.done)
+		t := time.NewTicker(flushInterval)
+		defer t.Stop()
+		for {
+			select {
+			case <-r.stop:
+				return
+			case <-t.C:
+				r.flush()
+			}
+		}
+	}()
+}
+
+// close 停 ticker、等循环 goroutine 退出（之后无并发 flush），再做最终 flush 排空尾部。
+func (r *batchReporter) close() {
+	close(r.stop)
+	<-r.done
+	r.flush()
 }
 
 // ---------- 通用工具 ----------
@@ -559,8 +698,9 @@ func (a *App) ExportLog(text string) string {
 
 func (a *App) emitInfo(msg string) {
 	now := time.Now()
-	runtime.EventsEmit(a.ctx, eventLog, LogLine{
-		Time: now.Format("15:04:05"), Tag: "[信息]", Kind: "info", Msg: msg,
+	// gen:log 载荷统一为数组（与 batchReporter 一致），单条 info 发单元素数组。
+	runtime.EventsEmit(a.ctx, eventLog, []LogLine{
+		{Time: now.Format("15:04:05"), Tag: "[信息]", Kind: "info", Msg: msg},
 	})
 	a.writeLogLine(now, "[信息]", msg)
 }
@@ -597,6 +737,48 @@ func (a *App) writeLogLine(t time.Time, tag, msg string) {
 	}
 	defer f.Close()
 	_, _ = f.WriteString(line)
+}
+
+// writeLogBatch 把一批日志一次性落盘，替代 batchReporter 路径上「每行开关文件」。
+// 按日期分组：正常一批同一天→只开关一次文件；恰好跨午夜的批自动分裂到两个文件各写一次。
+// 与 writeLogLine（emitInfo/AppendLog 仍用）共用 logMu 串行写同一天文件。尽力而为，出错静默。
+func (a *App) writeLogBatch(items []bufLog) {
+	if len(items) == 0 {
+		return
+	}
+	dir, err := a.logsDir()
+	if err != nil {
+		return
+	}
+
+	byDate := map[string]*strings.Builder{}
+	var order []string
+	for _, it := range items {
+		d := it.t.Format("2006-01-02")
+		b, ok := byDate[d]
+		if !ok {
+			b = &strings.Builder{}
+			byDate[d] = b
+			order = append(order, d)
+		}
+		b.WriteString(it.t.Format("15:04:05"))
+		b.WriteByte(' ')
+		b.WriteString(it.line.Tag)
+		b.WriteByte(' ')
+		b.WriteString(it.line.Msg)
+		b.WriteByte('\n')
+	}
+
+	a.logMu.Lock()
+	defer a.logMu.Unlock()
+	for _, d := range order {
+		f, err := os.OpenFile(filepath.Join(dir, d+".log"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+		if err != nil {
+			continue
+		}
+		_, _ = f.WriteString(byDate[d].String())
+		_ = f.Close()
+	}
 }
 
 // AppendLog 供前端把自己产生的日志行（如 UI 提示）也落到当天日志文件。tag/msg 分开传。

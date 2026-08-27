@@ -3,6 +3,7 @@ package configdir
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -132,6 +133,49 @@ func TestReadFileTruncatesLargeFile(t *testing.T) {
 	if len(preview.Content) > maxPreviewBytes {
 		t.Errorf("截断后内容字节数 %d 不应超过上限 %d", len(preview.Content), maxPreviewBytes)
 	}
+}
+
+func TestReadFileTailKeepsEnd(t *testing.T) {
+	base := buildSample(t)
+	// 每行 12 字节（line-000000\n），4 万行 ≈ 480KB，超过 256KB 上限。
+	var b strings.Builder
+	for i := 0; i < 40000; i++ {
+		b.WriteString("line-")
+		b.WriteString(pad6(i))
+		b.WriteByte('\n')
+	}
+	if err := os.WriteFile(filepath.Join(base, "链接.txt"), []byte(b.String()), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	preview, err := ReadFileTail(base, "链接.txt")
+	if err != nil {
+		t.Fatalf("ReadFileTail 返回错误: %v", err)
+	}
+	if !preview.Truncated {
+		t.Error("超过上限的文件应被标记为截断")
+	}
+	if len(preview.Content) > maxPreviewBytes {
+		t.Errorf("截断后内容字节数 %d 不应超过上限 %d", len(preview.Content), maxPreviewBytes)
+	}
+	if !strings.Contains(preview.Content, "line-039999") {
+		t.Error("尾部截断应保留文件末尾的最新行")
+	}
+	if strings.Contains(preview.Content, "line-000000") {
+		t.Error("尾部截断不应包含文件开头最旧的行")
+	}
+	if !strings.HasPrefix(preview.Content, "line-") {
+		t.Errorf("尾部截断应从整行行首开始，实际开头 = %q", preview.Content[:min(20, len(preview.Content))])
+	}
+}
+
+// pad6 把非负整数左补零到 6 位（测试用，避免引入 fmt）。
+func pad6(n int) string {
+	s := strconv.Itoa(n)
+	for len(s) < 6 {
+		s = "0" + s
+	}
+	return s
 }
 
 func TestWriteFileUpdatesContent(t *testing.T) {
