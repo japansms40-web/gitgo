@@ -462,7 +462,12 @@ func (a *App) StopPublish() {
 // LinksFileName 是「查看链接」输出到素材目录根下的文件名，与「外链库.txt」区分开。
 const LinksFileName = "查看链接.txt"
 
-// resetLinksFile 清空 查看链接.txt（每次新发布开始时调用，丢弃上一轮链接）。尽力而为。
+// LinksBackupDir 是清空前留存上一轮 查看链接.txt 的历史子目录名。
+const LinksBackupDir = "查看链接历史"
+
+// resetLinksFile 每次新发布开始时调用：先把上一轮 查看链接.txt 备份一份到
+// 查看链接历史/ 子目录（带时间戳，不丢历史），再清空正式文件，之后由 worker 增量 append。
+// 尽力而为——备份失败不拦清空。
 func (a *App) resetLinksFile() {
 	dir, err := a.contentDir() // contentDir 会 ensureLayout：目录不存在时先建
 	if err != nil {
@@ -470,7 +475,33 @@ func (a *App) resetLinksFile() {
 	}
 	a.linksMu.Lock()
 	defer a.linksMu.Unlock()
+	_, _ = backupLinksFile(dir, time.Now()) // 先把上一轮 copy 一份出去（非空才备）
 	_ = os.WriteFile(filepath.Join(dir, LinksFileName), []byte{}, 0o644)
+}
+
+// backupLinksFile 把当前 查看链接.txt（存在且非空时）复制到
+// 查看链接历史/查看链接-<时间戳>.txt，供新一轮清空前留存上一轮链接。
+// 返回备份文件的绝对路径（无需备份时为空串）与错误。调用方持 a.linksMu。
+func backupLinksFile(dir string, now time.Time) (string, error) {
+	data, err := os.ReadFile(filepath.Join(dir, LinksFileName))
+	if os.IsNotExist(err) {
+		return "", nil // 从没发过：无需备份
+	}
+	if err != nil {
+		return "", err
+	}
+	if len(data) == 0 {
+		return "", nil // 空文件：无需备份
+	}
+	backupDir := filepath.Join(dir, LinksBackupDir)
+	if err := os.MkdirAll(backupDir, 0o755); err != nil {
+		return "", err
+	}
+	dst := filepath.Join(backupDir, fmt.Sprintf("查看链接-%s.txt", now.Format("20060102-150405")))
+	if err := os.WriteFile(dst, data, 0o644); err != nil {
+		return "", err
+	}
+	return dst, nil
 }
 
 // appendLinksBatch 把一批链接一次持锁 append 到 查看链接.txt（不存在则创建）。
