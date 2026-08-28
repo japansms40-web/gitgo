@@ -3,6 +3,7 @@ package contentgen
 import (
 	"math/rand"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -625,5 +626,150 @@ func TestGenerateExternalLinkEmptyBankLenient(t *testing.T) {
 	}
 	if got, want := drafts[0].Title, "[][]"; got != want {
 		t.Errorf("空外链库应替换成空串，得到 %q，期望 %q", got, want)
+	}
+}
+
+// ---------- {顺序外链} 全局顺序消费 ----------
+
+// TestGenerateSequentialExternalLinkAcrossDrafts 一次 Generate 里的多篇必须接着往下取，
+// 而不是每篇都从外链库第一条重新开始。
+func TestGenerateSequentialExternalLinkAcrossDrafts(t *testing.T) {
+	lib := Library{
+		TitleTemplate: "{顺序外链}",
+		BodyTemplates: body("x"),
+		URLs:          []string{"u0", "u1", "u2", "u3", "u4"},
+	}
+	drafts, err := Generate(lib, Options{Count: 4}, newRnd(), fixedNow)
+	if err != nil {
+		t.Fatalf("Generate 返回错误: %v", err)
+	}
+	want := []string{"u0", "u1", "u2", "u3"}
+	for i, w := range want {
+		if got := drafts[i].Title; got != w {
+			t.Errorf("第 %d 篇 {顺序外链} 得到 %q，期望 %q", i+1, got, w)
+		}
+	}
+}
+
+// TestGenerateSequentialExternalLinkTitleAndBodyShareCursor 同一篇里标题与正文共用一个游标，
+// 不会各自从头取，保证一条链接只被用一次。
+func TestGenerateSequentialExternalLinkTitleAndBodyShareCursor(t *testing.T) {
+	lib := Library{
+		TitleTemplate: "{顺序外链}",
+		BodyTemplates: []string{"{顺序外链}"},
+		URLs:          []string{"u0", "u1", "u2"},
+	}
+	drafts, err := Generate(lib, Options{Count: 1}, newRnd(), fixedNow)
+	if err != nil {
+		t.Fatalf("Generate 返回错误: %v", err)
+	}
+	if got, want := drafts[0].Title, "u0"; got != want {
+		t.Errorf("标题得到 %q，期望 %q", got, want)
+	}
+	if got, want := drafts[0].Body, "u1"; got != want {
+		t.Errorf("正文应接着标题往下取，得到 %q，期望 %q", got, want)
+	}
+}
+
+// TestGenerateWithSharedCursorContinuesAcrossCalls 注入的共享游标要跨多次 GenerateWith
+// 调用继续往下走——一次批量发布里换了账号也不会重复用前面的链接。
+func TestGenerateWithSharedCursorContinuesAcrossCalls(t *testing.T) {
+	lib := Library{
+		TitleTemplate: "{顺序外链}",
+		BodyTemplates: body("x"),
+		URLs:          []string{"u0", "u1", "u2", "u3", "u4", "u5"},
+	}
+	seq := NewSeqCursor()
+	var got []string
+	for call := 0; call < 3; call++ {
+		drafts, err := GenerateWith(lib, Options{Count: 2}, newRnd(), fixedNow, seq)
+		if err != nil {
+			t.Fatalf("第 %d 次 GenerateWith 返回错误: %v", call+1, err)
+		}
+		for _, d := range drafts {
+			got = append(got, d.Title)
+		}
+	}
+	want := []string{"u0", "u1", "u2", "u3", "u4", "u5"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Errorf("共享游标应跨调用连续消费，得到 %v，期望 %v", got, want)
+	}
+}
+
+// TestGenerateWithSharedCursorWrapsAfterExhausted 全部用完一轮后才回到第一条。
+func TestGenerateWithSharedCursorWrapsAfterExhausted(t *testing.T) {
+	lib := Library{
+		TitleTemplate: "{顺序外链}",
+		BodyTemplates: body("x"),
+		URLs:          []string{"u0", "u1", "u2"},
+	}
+	seq := NewSeqCursor()
+	drafts, err := GenerateWith(lib, Options{Count: 5}, newRnd(), fixedNow, seq)
+	if err != nil {
+		t.Fatalf("GenerateWith 返回错误: %v", err)
+	}
+	want := []string{"u0", "u1", "u2", "u0", "u1"}
+	for i, w := range want {
+		if got := drafts[i].Title; got != w {
+			t.Errorf("第 %d 篇得到 %q，期望 %q", i+1, got, w)
+		}
+	}
+}
+
+// TestGenerateWithNilCursorFallsBack 传 nil 游标要退化成"本次调用内共享"，不能 panic。
+func TestGenerateWithNilCursorFallsBack(t *testing.T) {
+	lib := Library{
+		TitleTemplate: "{顺序外链}",
+		BodyTemplates: body("x"),
+		URLs:          []string{"u0", "u1", "u2"},
+	}
+	drafts, err := GenerateWith(lib, Options{Count: 2}, newRnd(), fixedNow, nil)
+	if err != nil {
+		t.Fatalf("GenerateWith 返回错误: %v", err)
+	}
+	if got, want := drafts[1].Title, "u1"; got != want {
+		t.Errorf("nil 游标应退化成本次调用内共享，得到 %q，期望 %q", got, want)
+	}
+}
+
+// TestSeqCursorConcurrentUnique 多 worker 并发取号不重复（配 -race 跑）。
+func TestSeqCursorConcurrentUnique(t *testing.T) {
+	const workers, perWorker = 8, 500
+	seq := NewSeqCursor()
+	out := make(chan int64, workers*perWorker)
+	var wg sync.WaitGroup
+	for w := 0; w < workers; w++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for i := 0; i < perWorker; i++ {
+				out <- seq.Next()
+			}
+		}()
+	}
+	wg.Wait()
+	close(out)
+
+	seen := make(map[int64]bool, workers*perWorker)
+	for n := range out {
+		if seen[n] {
+			t.Fatalf("序号 %d 被取到两次", n)
+		}
+		seen[n] = true
+	}
+	if len(seen) != workers*perWorker {
+		t.Errorf("取到 %d 个不同序号，期望 %d 个", len(seen), workers*perWorker)
+	}
+}
+
+// TestSeqCursorNilSafe 零值/nil 游标都不能 panic。
+func TestSeqCursorNilSafe(t *testing.T) {
+	var zero SeqCursor
+	if got := zero.Next(); got != 0 {
+		t.Errorf("零值游标首次 Next 应为 0，得到 %d", got)
+	}
+	var nilCur *SeqCursor
+	if got := nilCur.Next(); got != 0 {
+		t.Errorf("nil 游标 Next 应为 0，得到 %d", got)
 	}
 }

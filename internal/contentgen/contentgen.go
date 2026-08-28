@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 	"unicode"
 )
@@ -164,7 +165,17 @@ var (
 // 词库为空时对应的占位符替换成空串（而不是报错），方便边填边预览；
 // 只有标题和正文模板都为空时才没什么可生成的，返回错误。
 func Generate(lib Library, opts Options, rnd *rand.Rand, now time.Time) ([]Draft, error) {
+	return GenerateWith(lib, opts, rnd, now, NewSeqCursor())
+}
+
+// GenerateWith 与 Generate 相同，但由调用方注入 {顺序外链} 的游标 seq，
+// 让同一批任务里的多次调用（多账号、多轮次）接着上次的位置继续往下取，
+// 而不是每次都从外链库第一条重来。seq 为 nil 时退化成"本次调用内共享"。
+func GenerateWith(lib Library, opts Options, rnd *rand.Rand, now time.Time, seq *SeqCursor) ([]Draft, error) {
 	opts.Normalize()
+	if seq == nil {
+		seq = NewSeqCursor()
+	}
 
 	bodies := nonEmpty(lib.BodyTemplates)
 	if strings.TrimSpace(lib.TitleTemplate) == "" && len(bodies) == 0 {
@@ -180,14 +191,14 @@ func Generate(lib Library, opts Options, rnd *rand.Rand, now time.Time) ([]Draft
 			draw.article = lib.Articles[rnd.Intn(len(lib.Articles))]
 		}
 
-		title := strings.TrimSpace(render(lib.TitleTemplate, draw, lib, rnd, now))
+		title := strings.TrimSpace(render(lib.TitleTemplate, draw, lib, rnd, now, seq))
 		if title == "" {
 			title = fmt.Sprintf("草稿 %d", i+1)
 		}
 
 		var body string
 		if len(bodies) > 0 {
-			body = postProcess(render(bodies[rnd.Intn(len(bodies))], draw, lib, rnd, now), opts, rnd)
+			body = postProcess(render(bodies[rnd.Intn(len(bodies))], draw, lib, rnd, now, seq), opts, rnd)
 		}
 
 		drafts = append(drafts, Draft{Title: title, Body: body})
@@ -229,19 +240,33 @@ func pickKeyword(keywords []string, i int, opts Options, rnd *rand.Rand) string 
 	return kw
 }
 
-// renderState 保存一次 render 调用内跨 token 的可变状态。目前只有 {顺序外链} 的游标：
-// 它必须随文档从左到右依次递增，无法像随机标签那样每次独立求值。
-type renderState struct {
-	urlSeq int
+// SeqCursor 是 {顺序外链} 的取号器：一条链接取走一个号，号只增不减，
+// 因此同一个游标覆盖到的范围内（一次批量发布 = 全部账号 × 全部篇）
+// 每条外链只会被用一次，整个外链库跑完一遍才回到第一条。
+//
+// 多个 worker 会并发调用，所以计数走 atomic；零值与 nil 都可直接用。
+type SeqCursor struct {
+	n atomic.Int64
+}
+
+// NewSeqCursor 新建一个从 0 开始的游标。
+func NewSeqCursor() *SeqCursor { return &SeqCursor{} }
+
+// Next 取走下一个序号（从 0 开始递增）。nil 游标恒返回 0，免去调用方判空。
+func (c *SeqCursor) Next() int64 {
+	if c == nil {
+		return 0
+	}
+	return c.n.Add(1) - 1
 }
 
 // render 把模板里认识的占位符替换掉；不认识的原样留着，方便用户看出自己写错了。
 // 先做循环展开，再单遍替换——展开后的每份复制各自进 resolve，随机标签天然独立重抽。
-func render(tpl string, draw drawContext, lib Library, rnd *rand.Rand, now time.Time) string {
+// seq 是跨调用共享的 {顺序外链} 游标，一篇里标题与正文也共用它，不会各自从头取。
+func render(tpl string, draw drawContext, lib Library, rnd *rand.Rand, now time.Time, seq *SeqCursor) string {
 	tpl = expandLoops(tpl)
-	st := &renderState{}
 	return tokenRE.ReplaceAllStringFunc(tpl, func(match string) string {
-		if value, ok := resolve(match[1:len(match)-1], draw, lib, rnd, now, st); ok {
+		if value, ok := resolve(match[1:len(match)-1], draw, lib, rnd, now, seq); ok {
 			return value
 		}
 		return match
@@ -249,7 +274,7 @@ func render(tpl string, draw drawContext, lib Library, rnd *rand.Rand, now time.
 }
 
 // resolve 解析单个占位符的名字，返回替换值；第二个返回值为 false 表示不认识这个占位符。
-func resolve(name string, draw drawContext, lib Library, rnd *rand.Rand, now time.Time, st *renderState) (string, bool) {
+func resolve(name string, draw drawContext, lib Library, rnd *rand.Rand, now time.Time, seq *SeqCursor) (string, bool) {
 	switch name {
 	case "关键词":
 		return draw.keyword, true
@@ -262,7 +287,7 @@ func resolve(name string, draw drawContext, lib Library, rnd *rand.Rand, now tim
 	case "随机外链":
 		return randomLine(lib.URLs, rnd), true // 每次出现重抽，同 {变量N}
 	case "顺序外链":
-		return sequentialLine(lib.URLs, st), true // 跨整篇正文按行依次轮转
+		return sequentialLine(lib.URLs, seq), true // 按游标依次往下取，一条只用一次
 	}
 
 	// {日期N} / {时间N}
@@ -312,15 +337,18 @@ func randomLine(bank []string, rnd *rand.Rand) string {
 	return bank[rnd.Intn(len(bank))]
 }
 
-// sequentialLine 从词库里按顺序取下一行，取到末尾再回到开头；词库为空时返回空串。
-// 游标存在 renderState 里，所以一次 render 内多个 {顺序外链} 会依次轮转、可复现。
-func sequentialLine(bank []string, st *renderState) string {
+// sequentialLine 按共享游标取下一行，整个词库取完一遍才回到开头；词库为空时返回空串。
+// 游标是外部注入的，所以跨篇、跨账号、跨 render 调用都连续，一条外链只用一次。
+func sequentialLine(bank []string, seq *SeqCursor) string {
 	if len(bank) == 0 {
 		return ""
 	}
-	line := bank[st.urlSeq%len(bank)]
-	st.urlSeq++
-	return line
+	// 取模前先算出非负下标：Next 单调递增，理论上跑到 int64 上限才会回绕。
+	idx := seq.Next() % int64(len(bank))
+	if idx < 0 {
+		idx += int64(len(bank))
+	}
+	return bank[idx]
 }
 
 // imageMarkdown 把图片库里的一行包成 Markdown 图片语法。
