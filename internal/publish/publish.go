@@ -47,6 +47,11 @@ type Runner struct {
 	genOpts  contentgen.Options
 	report   Reporter
 	seed     int64
+
+	// urlSeq 是本次发布任务共用的 {顺序外链} 游标：全部账号、全部轮次、全部篇
+	// 共用一条递增序列，所以一条外链只会被用一次，外链库整份跑完才回到第一条。
+	// 换成新任务就是新 Runner，游标随之从头开始。并发安全，多 worker 直接共用。
+	urlSeq *contentgen.SeqCursor
 }
 
 // New 构造 Runner，并把非法配置纠正到可用下限。
@@ -63,7 +68,10 @@ func New(cfg Config, accounts []Account, lib contentgen.Library, genOpts content
 	if cfg.Cycles < 1 {
 		cfg.Cycles = 1
 	}
-	return &Runner{cfg: cfg, accounts: accounts, lib: lib, genOpts: genOpts, report: report, seed: seed}
+	return &Runner{
+		cfg: cfg, accounts: accounts, lib: lib, genOpts: genOpts, report: report, seed: seed,
+		urlSeq: contentgen.NewSeqCursor(),
+	}
 }
 
 // Run 按「账号循环」跑多轮：每轮起 N 个 worker 并发消费一遍全部账号，轮间等待 RoundIntervalSec。
@@ -267,11 +275,12 @@ func (r *Runner) processAccount(ctx context.Context, a Account, rnd *rand.Rand) 
 }
 
 // genBatch 生成 n 篇草稿；模板/词库为空或出错时返回 nil，由调用方判空。
+// 传入共用的 urlSeq，让 {顺序外链} 接着上一个账号的位置往下取，不重复用前面的链接。
 func (r *Runner) genBatch(rnd *rand.Rand, n int) []contentgen.Draft {
 	opts := r.genOpts
 	opts.Count = n
 	now := time.Now().In(time.FixedZone("CST", 8*3600))
-	drafts, err := contentgen.Generate(r.lib, opts, rnd, now)
+	drafts, err := contentgen.GenerateWith(r.lib, opts, rnd, now, r.urlSeq)
 	if err != nil {
 		return nil
 	}

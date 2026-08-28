@@ -14,7 +14,7 @@ import HelpIcon from './icons/HelpIcon.vue'
 import * as App from '../wailsjs/go/main/App'
 import { EventsOn, WindowMinimise, WindowToggleMaximise, Quit } from '../wailsjs/runtime/runtime'
 
-const APP_VERSION = 'v1.4.0'
+const APP_VERSION = 'v1.5.0'
 const APP_NAME = 'Git MD'
 
 const NAV_ITEMS = [
